@@ -1,6 +1,6 @@
 [project]
 name = "jarvis-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first AI desktop assistant backend for macOS."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -10,23 +10,36 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
-    "ollama>=0.3",
-    "chromadb>=0.5",
-    "playwright>=1.47",
-    "pyobjc-framework-Quartz>=10.3 ; sys_platform == 'darwin'",
-    "pyobjc-framework-ApplicationServices>=10.3 ; sys_platform == 'darwin'",
-    "pyobjc-framework-Cocoa>=10.3 ; sys_platform == 'darwin'",
+    "ollama>=0.4",
     "websockets>=13.1",
     "python-multipart>=0.0.12",
 ]
 
+# Heavy dependencies land with the phase that needs them, so a fresh
+# Phase 2 install stays small on 8GB hardware:
+#   memory  -> Phase 7, browser -> Phase 9, macos -> Phase 6 (tools)
 [project.optional-dependencies]
+memory = [
+    "chromadb>=0.5",
+]
+browser = [
+    "playwright>=1.47",
+]
+macos = [
+    "pyobjc-framework-Quartz>=10.3 ; sys_platform == 'darwin'",
+    "pyobjc-framework-ApplicationServices>=10.3 ; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=10.3 ; sys_platform == 'darwin'",
+]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "httpx>=0.27",
     "ruff>=0.7",
     "mypy>=1.13",
 ]
+
+[project.scripts]
+jarvis-backend = "app.main:run"
 
 [build-system]
 requires = ["hatchling"]
@@ -38,6 +51,15 @@ packages = ["app"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.11"
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

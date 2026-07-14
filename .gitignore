@@ -13,6 +13,7 @@ __pycache__/
 # Env / secrets
 .env
 .env.*
+!.env.example
 *.local
 
 # Data / models / memory (local-first, never commit user data)
@@ -43,3 +44,4 @@ logs/
 # Editors
 .vscode/
 .idea/
+.claude/

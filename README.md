@@ -8,10 +8,10 @@ Optimized for a MacBook Air M2 (8GB RAM). No paid APIs. Works offline for most t
 
 ## Status
 
-**Phase 1 of 10 — Architecture & scaffolding.** See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-for the full design and the phase roadmap. Nothing is runnable yet; this repo currently
-contains the architecture docs and an empty module skeleton for Phase 2 (backend) to
-build into.
+**Phase 2 of 10 — Backend online.** The FastAPI backend boots, manages local models
+through the RAM-budget ModelManager, and serves a working chat API (REST + streaming
+WebSocket) against Ollama. See [backend/README.md](backend/README.md) for the
+quickstart and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
 ## Why
 
@@ -50,8 +50,8 @@ jarvis_v2/
 
 ## Roadmap
 
-1. **Architecture & scaffolding** ← you are here
-2. Backend (FastAPI, Ollama integration, first `/chat` endpoint)
+1. ~~Architecture & scaffolding~~ ✅
+2. ~~Backend (FastAPI, Ollama integration, first `/chat` endpoint)~~ ✅ ← you are here
 3. macOS application (SwiftUI shell, permissions, backend IPC)
 4. Voice (wake word, STT, TTS pipeline)
 5. Planner (intent → structured tool-call plan)
