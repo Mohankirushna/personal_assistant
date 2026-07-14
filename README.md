@@ -51,8 +51,8 @@ jarvis_v2/
 ## Roadmap
 
 1. ~~Architecture & scaffolding~~ ✅
-2. ~~Backend (FastAPI, Ollama integration, first `/chat` endpoint)~~ ✅ ← you are here
-3. macOS application (SwiftUI shell, permissions, backend IPC)
+2. ~~Backend (FastAPI, Ollama integration, first `/chat` endpoint)~~ ✅
+3. ~~macOS application (SwiftUI shell, permissions, backend IPC)~~ ✅ ← you are here
 4. Voice (wake word, STT, TTS pipeline)
 5. Planner (intent → structured tool-call plan)
 6. Tools (Finder, Terminal, Browser, Git, VS Code, Clipboard, System)

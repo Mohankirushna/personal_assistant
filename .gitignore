@@ -45,3 +45,7 @@ logs/
 .vscode/
 .idea/
 .claude/
+
+# Swift PM
+frontend/**/.build/
+frontend/dist/

@@ -1,17 +1,64 @@
 # Frontend (macOS App)
 
-Placeholder. The SwiftUI Xcode project is scaffolded in **Phase 3**.
+SwiftUI menu-bar app for Jarvis, built as a Swift Package (no Xcode project
+required — builds with Command Line Tools alone).
 
-## Planned shape
+## Status
 
-- Menu-bar app (`MenuBarExtra`) plus an optional full window for chat/history.
-- Requests and holds the macOS permissions the assistant needs: Microphone,
-  Accessibility, Screen Recording, Automation (AppleScript).
-- Talks to the Python backend over localhost REST + WebSocket only (see
-  [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) section 8) — the backend
-  process is spawned or health-checked by the app on launch.
-- Renders confirmation prompts for `sensitive`/`destructive` tool calls
-  (see [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) section 5), showing
-  the exact action verbatim.
+**Phase 3 complete.** The app:
 
-No code lives here yet.
+- lives in the menu bar (`MenuBarExtra`) with a status indicator and a chat
+  window,
+- attaches to a running backend, or **spawns one itself** (`uv run
+  jarvis-backend`) with a generated per-session bearer token passed via
+  `JARVIS_AUTH_TOKEN` — so a backend started by the app only answers to the
+  app,
+- streams replies token-by-token over `WS /ws/chat`.
+
+Voice UI (mic streaming, push-to-talk) lands in Phase 4.
+
+## Layout
+
+```
+JarvisApp/
+├── Package.swift
+└── Sources/
+    ├── JarvisAppKit/        # non-UI: wire types, REST+WS client, process manager
+    ├── JarvisApp/           # SwiftUI app (menu bar, chat window)
+    └── JarvisAppSelfTest/   # assertion-based checks (see Testing below)
+```
+
+## Build & run
+
+```bash
+cd frontend/JarvisApp
+swift build                     # compile
+swift run jarvis-app-selftest   # run the checks
+
+# Bundle a real Jarvis.app (needed for mic/automation permission prompts):
+../../scripts/make_app.sh
+open ../dist/Jarvis.app
+```
+
+The backend directory is resolved from `JARVIS_BACKEND_DIR`, the
+`backendDirectory` user default, or `../../backend` relative to the app —
+set the env var when running from a non-standard location:
+
+```bash
+JARVIS_BACKEND_DIR=~/Downloads/projects/jarvis_v2/backend open ../dist/Jarvis.app
+```
+
+## Testing
+
+Command Line Tools ship neither XCTest nor swift-testing, and building
+swift-testing from source (swift-syntax) is unreasonable on 8GB RAM. Wire
+decoding and client behavior are therefore covered by the
+`jarvis-app-selftest` executable — plain assertions, nonzero exit on failure,
+CI-friendly. With full Xcode installed these can be promoted to a real test
+target.
+
+## Known limitations
+
+- If the app is force-killed (not quit via the menu), a backend it spawned
+  keeps running; quit via the menu ("Quit Jarvis") terminates it cleanly.
+- The bundle is ad-hoc signed; first launch may require right-click → Open.
