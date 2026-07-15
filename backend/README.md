@@ -5,7 +5,7 @@ for the full design.
 
 ## Status
 
-**Phase 6 complete.** Chat + voice + a planner that drives 21 real tools
+**Phase 9 complete.** Chat + voice + memory + a planner that drives 26 real tools
 through Ollama's native tool-calling, with schema validation and the
 risk-gated confirmation flow. Memory/vision/browser land in Phases 7-9.
 
@@ -19,6 +19,8 @@ risk-gated confirmation flow. Memory/vision/browser land in Phases 7-9.
 | Coding | `vscode_open` | |
 | Clipboard | `clipboard_read`, `clipboard_write` | |
 | System | `open_app`, `quit_app`, `list_running_apps`, `volume`, `screenshot`, `media_control`, `window_arrange`, `brightness` | window management needs Accessibility permission; brightness needs `brew install brightness` |
+| Vision | `look_at_screen` | explicit request only; swaps the LLM out of RAM (ADR 0001), CPU fallback on Metal OOM |
+| Browser | `web_search` (ddgs), `browser_open`, `browser_fill`, `browser_download` | password fields always confirmed; needs `--extra browser` + `playwright install chromium` |
 | Plugins | `roll_dice` (example) | drop a package in `app/plugins/` — same `Tool` base class |
 | Built-in | `clock` | |
 

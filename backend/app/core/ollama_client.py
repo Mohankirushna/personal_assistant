@@ -80,6 +80,15 @@ class OllamaLike(Protocol):
 
     async def embed(self, model: str, texts: list[str]) -> list[list[float]]: ...
 
+    async def chat_with_image(
+        self,
+        model: str,
+        prompt: str,
+        image_path: str,
+        keep_alive: str | int,
+        options: dict[str, Any] | None = None,
+    ) -> str: ...
+
     def chat_stream(
         self, model: str, messages: Iterable[Message], keep_alive: str | int
     ) -> AsyncIterator[str]: ...
@@ -169,6 +178,27 @@ class OllamaClient:
                     yield content
         except Exception as exc:  # noqa: BLE001 - translated and re-raised
             raise self._translate(exc, model) from exc
+
+    async def chat_with_image(
+        self,
+        model: str,
+        prompt: str,
+        image_path: str,
+        keep_alive: str | int,
+        options: dict[str, Any] | None = None,
+    ) -> str:
+        """One-shot multimodal chat: a text prompt about one image."""
+        try:
+            response = await self._client.chat(
+                model=model,
+                messages=[{"role": "user", "content": prompt, "images": [image_path]}],
+                stream=False,
+                keep_alive=keep_alive,
+                options=options,
+            )
+        except Exception as exc:  # noqa: BLE001 - translated and re-raised
+            raise self._translate(exc, model) from exc
+        return response.message.content or ""
 
     async def load_model(self, model: str, keep_alive: str | int) -> None:
         """Load a model into memory without generating anything.

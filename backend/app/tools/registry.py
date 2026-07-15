@@ -40,7 +40,12 @@ class ToolRegistry:
         return len(self._tools)
 
     def register_module_tools(self, module: ModuleType) -> int:
-        """Register every concrete Tool subclass defined in `module`."""
+        """Register every concrete Tool subclass defined in `module`.
+
+        Tools whose constructors require services (e.g. the vision tool)
+        are skipped here and registered explicitly in app.main with their
+        dependencies injected.
+        """
         count = 0
         for _name, obj in inspect.getmembers(module, inspect.isclass):
             if (
@@ -49,7 +54,16 @@ class ToolRegistry:
                 and not inspect.isabstract(obj)
                 and obj.__module__ == module.__name__
             ):
-                self.register(obj())
+                try:
+                    instance = obj()
+                except TypeError:
+                    logger.info(
+                        "Skipping %s.%s (requires constructor arguments)",
+                        module.__name__,
+                        obj.__name__,
+                    )
+                    continue
+                self.register(instance)
                 count += 1
         return count
 

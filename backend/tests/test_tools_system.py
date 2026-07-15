@@ -29,6 +29,8 @@ def test_discovery_finds_the_whole_suite() -> None:
     }
     missing = expected - names
     assert not missing, f"tools not discovered: {missing}"
+    # Service-dependent tools are NOT discovered; app.main injects them.
+    assert "look_at_screen" not in names
 
 
 @pytest.mark.integration

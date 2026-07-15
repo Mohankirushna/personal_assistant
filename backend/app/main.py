@@ -54,6 +54,14 @@ def _memory_imports_available() -> bool:
     return True
 
 
+def _browser_imports_available() -> bool:
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def create_app(
     settings: Settings | None = None,
     ollama_client: OllamaLike | None = None,
@@ -91,6 +99,31 @@ def create_app(
         tool_registry = registry if registry is not None else ToolRegistry()
         if registry is None:
             tool_registry.discover()
+            # Service-dependent tools are injected here, not discovered.
+            from app.tools.vision.vision import LookAtScreenTool
+            from app.vision.qwen_vl import VisionService
+
+            vision_service = VisionService(client, model_manager, app_settings)
+            tool_registry.register(LookAtScreenTool(vision_service))
+
+            if _browser_imports_available():
+                from app.tools.browser.browser import (
+                    BrowserDownloadTool,
+                    BrowserFillTool,
+                    BrowserOpenTool,
+                    BrowserSearchTool,
+                    BrowserSession,
+                )
+
+                browser_session = BrowserSession()
+                app.state.browser_session = browser_session
+                for browser_tool in (
+                    BrowserSearchTool(browser_session),
+                    BrowserOpenTool(browser_session),
+                    BrowserFillTool(browser_session),
+                    BrowserDownloadTool(browser_session),
+                ):
+                    tool_registry.register(browser_tool)
         gate = SafetyGate(auto_approve=app_settings.auto_approve)
         planner = (
             Planner(client, model_manager, tool_registry, gate, app_settings)
@@ -151,6 +184,12 @@ def create_app(
         try:
             yield
         finally:
+            active_browser = getattr(app.state, "browser_session", None)
+            if active_browser is not None:
+                try:
+                    await active_browser.close()
+                except Exception:  # noqa: BLE001 - shutdown is best-effort
+                    logger.warning("Could not close browser at shutdown", exc_info=True)
             try:
                 await model_manager.release_all()
             except Exception:  # noqa: BLE001 - shutdown is best-effort

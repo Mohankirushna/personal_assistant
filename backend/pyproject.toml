@@ -36,6 +36,7 @@ memory = [
 ]
 browser = [
     "playwright>=1.47",
+    "ddgs>=9.0",
 ]
 macos = [
     "pyobjc-framework-Quartz>=10.3 ; sys_platform == 'darwin'",
