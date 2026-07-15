@@ -8,10 +8,20 @@ Optimized for a MacBook Air M2 (8GB RAM). No paid APIs. Works offline for most t
 
 ## Status
 
-**Phase 9 of 10 — Vision + browser automation online.** Backend chat API + SwiftUI menu-bar app + a full
-local voice loop: "hey jarvis" wake word (openWakeWord), Whisper STT, LLM reply,
-spoken TTS response. See [backend/README.md](backend/README.md) for the quickstart
-and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
+**All 10 phases complete — feature-complete v0.1.** A local voice assistant that
+hears "hey jarvis", transcribes with Whisper, plans with a local LLM, drives 26
+safety-gated tools (files, terminal, git, apps, clipboard, browser, screen vision),
+remembers past interactions, and replies out loud — with a SwiftUI menu-bar app and
+a Python backend, entirely on-device.
+
+Quickstart in [backend/README.md](backend/README.md) · design in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · API in [docs/API.md](docs/API.md).
+
+```bash
+scripts/setup.sh --all --with-models     # deps + Chromium + models (~9GB)
+cd backend && uv run jarvis-backend       # start the backend
+# then build/run the menu-bar app: scripts/make_app.sh && open frontend/dist/Jarvis.app
+```
 
 ## Why
 
@@ -58,8 +68,8 @@ jarvis_v2/
 6. ~~Tools (Finder, Terminal, Git, VS Code, Clipboard, System) + plugins~~ ✅
 7. ~~Memory (SQLite + vector store, semantic recall)~~ ✅
 8. ~~Vision (on-demand screen understanding)~~ ✅
-9. ~~Automation (Playwright browser control end-to-end)~~ ✅ ← you are here
-10. Testing (unit + integration test suite)
+9. ~~Automation (Playwright browser control end-to-end)~~ ✅
+10. ~~Testing (unit + integration test suite, CI)~~ ✅
 
 ## License
 

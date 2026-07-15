@@ -82,6 +82,12 @@ testpaths = ["tests"]
 markers = [
     "integration: needs local models, network, or macOS services",
 ]
+filterwarnings = [
+    # Benign: Playwright/subprocess transports get GC'd after their event
+    # loop closes at test teardown. Not from our code.
+    "ignore:Event loop is closed:ResourceWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
 
 [[tool.mypy.overrides]]
 module = ["faster_whisper.*", "openwakeword.*", "piper.*", "sounddevice.*", "websockets.*"]

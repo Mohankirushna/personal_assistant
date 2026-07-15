@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    # macOS runner: the backend links against pyobjc and calls macOS-only
+    # tools; the unit suite (no `integration` marker) needs neither Ollama
+    # nor the models, so it runs anywhere macOS.
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --extra dev --extra voice --extra memory --extra browser
+
+      - name: Ruff (lint + format check)
+        run: uv run ruff check app tests
+
+      - name: Mypy (type check)
+        run: uv run mypy app
+
+      - name: Pytest (unit tests only; integration needs local models)
+        run: uv run pytest -m "not integration" -q
+
+  frontend:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: frontend/JarvisApp
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      - name: Self-tests
+        run: swift run jarvis-app-selftest
