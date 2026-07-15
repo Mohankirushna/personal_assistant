@@ -154,42 +154,55 @@ class ScreenshotTool(Tool):
 
 
 class MediaArgs(BaseModel):
-    action: Literal["play_pause", "next", "previous"] = Field(
-        description="Media action to perform."
+    action: Literal["play", "pause", "next", "previous"] = Field(
+        description="Media action. Use 'pause' for stop/pause/quiet, 'play' "
+        "for play/resume/continue, 'next' to skip, 'previous' to go back."
     )
 
 
 class MediaTool(Tool):
     name: ClassVar[str] = "media_control"
     description: ClassVar[str] = (
-        "Control music playback (play/pause, next, previous) in Music or Spotify."
+        "Control music playback in Music or Spotify: play, pause (also for "
+        "'stop'), skip to next, or go to the previous track."
     )
     args_model: ClassVar[type[BaseModel]] = MediaArgs
     risk_level: ClassVar[RiskLevel] = RiskLevel.SAFE
 
+    # Explicit verbs, never the `playpause` toggle: "pause then stop" must not
+    # flip playback back on. Each verb is idempotent for its intent.
     _ACTIONS: ClassVar[dict[str, str]] = {
-        "play_pause": "playpause",
+        "play": "play",
+        "pause": "pause",
         "next": "next track",
         "previous": "previous track",
     }
 
     async def _running(self, app: str) -> bool:
-        output = await run_osascript(
-            f'application {applescript_quote(app)} is running'
-        )
+        output = await run_osascript(f"application {applescript_quote(app)} is running")
         return output.ok and output.stdout.strip() == "true"
 
     async def run(self, args: MediaArgs) -> ToolResult:  # type: ignore[override]
         verb = self._ACTIONS[args.action]
         for player in ("Spotify", "Music"):
-            if await self._running(player):
-                output = await run_osascript(
-                    f"tell application {applescript_quote(player)} to {verb}"
+            if not await self._running(player):
+                continue
+            quoted = applescript_quote(player)
+            output = await run_osascript(f"tell application {quoted} to {verb}")
+            if not output.ok:
+                return ToolResult.failure(
+                    self.name, f"could not control {player}: {output.combined()}"
                 )
-                if output.ok:
-                    return ToolResult(
-                        tool=self.name, ok=True, summary=f"{args.action} sent to {player}"
-                    )
+            # Report the real resulting state, not just that a command was sent —
+            # so we never claim "paused" while audio is still playing.
+            state_out = await run_osascript(f"tell application {quoted} to player state")
+            state = state_out.stdout.strip() or "unknown"
+            return ToolResult(
+                tool=self.name,
+                ok=True,
+                summary=f"{player} is now {state} (after '{args.action}').",
+                data={"player": player, "state": state},
+            )
         return ToolResult.failure(self.name, "Neither Music nor Spotify is running.")
 
 
