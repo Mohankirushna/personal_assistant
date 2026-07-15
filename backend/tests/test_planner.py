@@ -111,12 +111,28 @@ async def test_direct_respond_needs_no_tools(
     assert echo_tool.executions == []
 
 
-async def test_empty_turn_falls_back_to_done(
+async def test_empty_turn_retries_with_nudge(
     planner: Planner, fake_ollama: FakeOllamaClient
 ) -> None:
+    """One empty turn -> nudge retry; the second (default) reply is used."""
     fake_ollama.queued_turns = [ChatTurn()]
     execution = await planner.run("hello", history=[])
-    assert execution.reply == "Done."
+    assert execution.reply == fake_ollama.reply
+    # The nudge message was actually sent on the retry.
+    assert any(
+        "empty" in message.get("content", "")
+        for message in fake_ollama.chat_messages[-1]
+        if message["role"] == "user"
+    )
+
+
+async def test_two_empty_turns_admit_inability(
+    planner: Planner, fake_ollama: FakeOllamaClient
+) -> None:
+    """Persistent empty turns produce an honest reply, never a fake 'done'."""
+    fake_ollama.queued_turns = [ChatTurn(), ChatTurn()]
+    execution = await planner.run("hello", history=[])
+    assert "wasn't able" in execution.reply
 
 
 async def test_unknown_tool_feeds_back_and_recovers(

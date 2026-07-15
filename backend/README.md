@@ -5,9 +5,28 @@ for the full design.
 
 ## Status
 
-**Phase 4 complete.** The backend serves chat (REST + streaming WS) and a
-full voice loop (wake word → Whisper STT → LLM → TTS) against local models.
-Planner/tools/memory modules are still documented stubs for their phases.
+**Phase 6 complete.** Chat + voice + a planner that drives 21 real tools
+through Ollama's native tool-calling, with schema validation and the
+risk-gated confirmation flow. Memory/vision/browser land in Phases 7-9.
+
+### Tools
+
+| Group | Tools | Risk notes |
+|---|---|---|
+| Finder | `finder_search` (Spotlight), `finder_list`, `finder_create_folder`, `finder_move`, `finder_delete`, `finder_compress`, `finder_extract` | delete → Trash, always confirmed |
+| Terminal | `terminal_run` | allowlist = safe; `rm`/`sudo`/uninstalls/force-push… always confirmed; everything else confirmed once per command |
+| Git | `git` | status/log/diff safe; commit/checkout confirmed; reset --hard/clean/force-push always confirmed |
+| Coding | `vscode_open` | |
+| Clipboard | `clipboard_read`, `clipboard_write` | |
+| System | `open_app`, `quit_app`, `list_running_apps`, `volume`, `screenshot`, `media_control`, `window_arrange`, `brightness` | window management needs Accessibility permission; brightness needs `brew install brightness` |
+| Plugins | `roll_dice` (example) | drop a package in `app/plugins/` — same `Tool` base class |
+| Built-in | `clock` | |
+
+**Model capability note:** single-step commands ("list my downloads",
+"take a screenshot") are reliable on the default 3B model. Compound
+commands ("create X then list Y") are hit-or-miss on 3B — when the model
+can't plan them it says so honestly rather than pretending. Enable
+`JARVIS_POWER_MODE=true` (7B) for more reliable multi-step planning.
 
 ## Prerequisites
 

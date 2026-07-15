@@ -98,8 +98,35 @@ class Planner:
                 tools=tool_specs,
             )
 
+            if not turn.tool_calls and not turn.content.strip():
+                # Small models occasionally emit an entirely empty turn on
+                # complex requests; nudge once before giving up honestly.
+                logger.info("Model returned an empty turn; retrying with a nudge")
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your last response was empty. Either call the first tool "
+                            "needed for my request, or answer in text."
+                        ),
+                    }
+                )
+                turn = await self._client.chat_turn(
+                    model=model,
+                    messages=messages,
+                    keep_alive=self._settings.llm_keep_alive,
+                    tools=tool_specs,
+                )
+
             if not turn.tool_calls:
-                execution.reply = turn.content.strip() or "Done."
+                reply = turn.content.strip()
+                if not reply:
+                    # Never fabricate success ("Done.") without tool evidence.
+                    reply = (
+                        "I wasn't able to work out how to do that. "
+                        "Could you rephrase, or break it into smaller steps?"
+                    )
+                execution.reply = reply
                 return execution
 
             # Record the assistant turn in the native format so the model

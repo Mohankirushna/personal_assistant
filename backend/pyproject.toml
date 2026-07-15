@@ -66,6 +66,8 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+# ASYNC109: timeout parameters on our subprocess helpers are a deliberate API
+ignore = ["ASYNC109"]
 
 [tool.mypy]
 python_version = "3.11"
