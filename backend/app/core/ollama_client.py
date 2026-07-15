@@ -13,14 +13,33 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Iterable
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Any, Protocol
 
 import httpx
 import ollama
 
 logger = logging.getLogger(__name__)
 
-Message = dict[str, str]  # {"role": "system" | "user" | "assistant", "content": str}
+# Chat message; "tool" role messages and assistant tool_calls use extra keys,
+# hence Any values.
+Message = dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolCallRequest:
+    """A tool invocation proposed by the model (not yet executed)."""
+
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ChatTurn:
+    """One assistant turn: text and/or proposed tool calls."""
+
+    content: str = ""
+    tool_calls: list[ToolCallRequest] = field(default_factory=list)
 
 
 class OllamaUnavailableError(RuntimeError):
@@ -47,7 +66,17 @@ class ModelNotFoundError(RuntimeError):
 class OllamaLike(Protocol):
     """The interface the rest of the app depends on (real client or test fake)."""
 
-    async def chat(self, model: str, messages: Iterable[Message], keep_alive: str | int) -> str: ...
+    async def chat(
+        self, model: str, messages: Iterable[Message], keep_alive: str | int
+    ) -> str: ...
+
+    async def chat_turn(
+        self,
+        model: str,
+        messages: Iterable[Message],
+        keep_alive: str | int,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> ChatTurn: ...
 
     def chat_stream(
         self, model: str, messages: Iterable[Message], keep_alive: str | int
@@ -84,6 +113,38 @@ class OllamaClient:
         except Exception as exc:  # noqa: BLE001 - translated and re-raised
             raise self._translate(exc, model) from exc
         return response.message.content or ""
+
+    async def chat_turn(
+        self,
+        model: str,
+        messages: Iterable[Message],
+        keep_alive: str | int,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> ChatTurn:
+        """Chat with native tool-calling: the model's trained function-call
+        template is used (far more reliable for qwen2.5 than hand-rolled
+        JSON protocols)."""
+        try:
+            response = await self._client.chat(
+                model=model,
+                messages=list(messages),
+                stream=False,
+                keep_alive=keep_alive,
+                tools=tools or [],
+            )
+        except Exception as exc:  # noqa: BLE001 - translated and re-raised
+            raise self._translate(exc, model) from exc
+        raw_calls = response.message.tool_calls or []
+        return ChatTurn(
+            content=response.message.content or "",
+            tool_calls=[
+                ToolCallRequest(
+                    name=call.function.name,
+                    arguments=dict(call.function.arguments or {}),
+                )
+                for call in raw_calls
+            ],
+        )
 
     async def chat_stream(
         self, model: str, messages: Iterable[Message], keep_alive: str | int

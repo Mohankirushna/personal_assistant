@@ -21,14 +21,17 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI
 
-from app.api import chat, health
+from app.api import chat, health, tools
 from app.core.auth import TokenAuthMiddleware
 from app.core.chat_service import ChatService
 from app.core.config import Settings, get_settings
 from app.core.logging import setup_logging
 from app.core.model_manager import ModelManager
 from app.core.ollama_client import OllamaClient, OllamaLike
+from app.core.safety import SafetyGate
 from app.core.sessions import SessionStore
+from app.planner.planner import Planner
+from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +52,7 @@ def create_app(
     stt: Any | None = None,
     tts: Any | None = None,
     wake_detector: Any | None = None,
+    registry: ToolRegistry | None = None,
 ) -> FastAPI:
     """Application factory.
 
@@ -69,11 +73,25 @@ def create_app(
         model_manager = ModelManager(client, app_settings)
         sessions = SessionStore(max_messages=app_settings.max_history_messages)
 
+        tool_registry = registry if registry is not None else ToolRegistry()
+        if registry is None:
+            tool_registry.discover()
+        gate = SafetyGate(auto_approve=app_settings.auto_approve)
+        planner = (
+            Planner(client, model_manager, tool_registry, gate, app_settings)
+            if len(tool_registry)
+            else None
+        )
+
         app.state.settings = app_settings
         app.state.ollama = client
         app.state.model_manager = model_manager
         app.state.sessions = sessions
-        app.state.chat_service = ChatService(client, model_manager, sessions, app_settings)
+        app.state.registry = tool_registry
+        app.state.safety_gate = gate
+        app.state.chat_service = ChatService(
+            client, model_manager, sessions, app_settings, planner=planner
+        )
 
         if voice_enabled:
             from app.speech.stt import WhisperSTT
@@ -91,12 +109,13 @@ def create_app(
             )
 
         logger.info(
-            "Backend ready on %s:%s (llm=%s, auth=%s, voice=%s)",
+            "Backend ready on %s:%s (llm=%s, auth=%s, voice=%s, tools=%d)",
             app_settings.host,
             app_settings.port,
             app_settings.active_llm_model,
             "on" if app_settings.auth_token else "off",
             "on" if voice_enabled else "off (install the 'voice' extra)",
+            len(tool_registry),
         )
         try:
             yield
@@ -112,6 +131,7 @@ def create_app(
     app.add_middleware(TokenAuthMiddleware, token=app_settings.auth_token)
     app.include_router(health.router)
     app.include_router(chat.router)
+    app.include_router(tools.router)
     if voice_enabled:
         from app.api import voice
 

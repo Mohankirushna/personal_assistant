@@ -1,16 +1,20 @@
 """Chat endpoints.
 
-POST /chat            — request/response, full reply in one payload.
-WS   /ws/chat         — streaming: send {"message", "session_id"?}, receive
-                        {"type": "token"}* then {"type": "done"}; errors come
-                        back as {"type": "error"} without closing the socket.
-
-Phase 5 (Planner) reroutes ChatService through the planner; these transports
-stay unchanged.
+POST /chat — request/response. Cannot prompt for confirmation, so
+             sensitive/destructive tool calls are denied with an explanation
+             (use the app/WebSocket for interactive approval).
+WS /ws/chat — streaming + interactive confirmations:
+    client -> {"message", "session_id"?}
+           -> {"type": "confirm_response", "approved": bool}
+    server -> {"type": "token", "content"}*
+           -> {"type": "confirm_request", "tool", "risk", "action"}
+           -> {"type": "done", "session_id", "reply"}
+           -> {"type": "error", "message"} (socket stays open)
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -18,10 +22,13 @@ from pydantic import BaseModel, Field
 
 from app.core.chat_service import ChatService
 from app.core.ollama_client import ModelNotFoundError, OllamaUnavailableError
+from app.core.safety import ConfirmationRequest
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+CONFIRM_TIMEOUT_SECONDS = 120
 
 
 class ChatRequest(BaseModel):
@@ -53,6 +60,29 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
 async def chat_ws(websocket: WebSocket) -> None:
     service: ChatService = websocket.app.state.chat_service
     await websocket.accept()
+
+    async def ws_confirmer(request: ConfirmationRequest) -> bool:
+        """Show the exact action to the user and await their verdict."""
+        await websocket.send_json(
+            {
+                "type": "confirm_request",
+                "tool": request.tool,
+                "risk": request.risk.value,
+                "action": request.action,
+            }
+        )
+        try:
+            while True:
+                message = await asyncio.wait_for(
+                    websocket.receive_json(), timeout=CONFIRM_TIMEOUT_SECONDS
+                )
+                if message.get("type") == "confirm_response":
+                    return bool(message.get("approved"))
+                logger.debug("ignoring message while awaiting confirmation: %s", message)
+        except TimeoutError:
+            logger.info("confirmation timed out; denying")
+            return False
+
     try:
         while True:
             payload = await websocket.receive_json()
@@ -64,7 +94,9 @@ async def chat_ws(websocket: WebSocket) -> None:
             session = service.open_session(parsed.session_id)
             parts: list[str] = []
             try:
-                async for token in service.respond_stream(session, parsed.message):
+                async for token in service.respond_stream(
+                    session, parsed.message, confirmer=ws_confirmer
+                ):
                     parts.append(token)
                     await websocket.send_json({"type": "token", "content": token})
             except (OllamaUnavailableError, ModelNotFoundError) as exc:

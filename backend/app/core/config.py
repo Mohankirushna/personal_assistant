@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     vad_energy_threshold: float = 0.015
     max_utterance_seconds: float = 15.0
 
+    # Development escape hatch: skip confirmation prompts entirely.
+    auto_approve: bool = False
+
     log_level: str = "INFO"
 
     @field_validator("host")

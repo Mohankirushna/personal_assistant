@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app
+from app.tools.registry import ToolRegistry
 from tests.conftest import FakeOllamaClient
 from tests.test_voice_session import FakeWake, frames
 
@@ -50,6 +51,7 @@ def voice_app(settings: Settings, fake_ollama: FakeOllamaClient, fake_stt: FakeS
         stt=fake_stt,
         tts=FakeTTS(),
         wake_detector=FakeWake(scores=[0.9]),
+        registry=ToolRegistry(),
     )
 
 

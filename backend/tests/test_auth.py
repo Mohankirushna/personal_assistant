@@ -8,6 +8,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.core.config import Settings
 from app.main import create_app
+from app.tools.registry import ToolRegistry
 from tests.conftest import FakeOllamaClient
 
 TOKEN = "secret-token"
@@ -16,7 +17,9 @@ TOKEN = "secret-token"
 @pytest.fixture
 def authed_client() -> TestClient:
     settings = Settings(_env_file=None, auth_token=TOKEN)
-    app = create_app(settings=settings, ollama_client=FakeOllamaClient())
+    app = create_app(
+        settings=settings, ollama_client=FakeOllamaClient(), registry=ToolRegistry()
+    )
     with TestClient(app) as client:
         yield client
 

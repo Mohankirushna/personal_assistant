@@ -53,8 +53,8 @@ jarvis_v2/
 1. ~~Architecture & scaffolding~~ ✅
 2. ~~Backend (FastAPI, Ollama integration, first `/chat` endpoint)~~ ✅
 3. ~~macOS application (SwiftUI shell, permissions, backend IPC)~~ ✅
-4. ~~Voice (wake word, STT, TTS pipeline)~~ ✅ ← you are here
-5. Planner (intent → structured tool-call plan)
+4. ~~Voice (wake word, STT, TTS pipeline)~~ ✅
+5. ~~Planner (intent → structured tool-call plan)~~ ✅ ← you are here
 6. Tools (Finder, Terminal, Browser, Git, VS Code, Clipboard, System)
 7. Memory (SQLite + vector store, semantic recall)
 8. Vision (on-demand screen understanding)

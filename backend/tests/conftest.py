@@ -10,15 +10,22 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
-from app.core.ollama_client import Message
+from app.core.ollama_client import ChatTurn, Message
 from app.main import create_app
+from app.tools.registry import ToolRegistry
 
 
 class FakeOllamaClient:
-    """In-memory OllamaLike double. Records every call for assertions."""
+    """In-memory OllamaLike double. Records every call for assertions.
+
+    `queued` replies are consumed first (one per chat call) — used to script
+    planner decisions; afterwards every call returns `reply`.
+    """
 
     def __init__(self, reply: str = "Hello from fake Jarvis.") -> None:
         self.reply = reply
+        self.queued: list[str] = []
+        self.queued_turns: list[ChatTurn] = []
         self.calls: list[tuple[str, str]] = []  # (operation, model)
         self.chat_messages: list[list[Message]] = []
         self.fail_with: Exception | None = None
@@ -31,7 +38,21 @@ class FakeOllamaClient:
         self._maybe_fail()
         self.calls.append(("chat", model))
         self.chat_messages.append(list(messages))
-        return self.reply
+        return self.queued.pop(0) if self.queued else self.reply
+
+    async def chat_turn(
+        self,
+        model: str,
+        messages: Iterable[Message],
+        keep_alive: str | int,
+        tools: list[dict] | None = None,
+    ) -> ChatTurn:
+        self._maybe_fail()
+        self.calls.append(("chat_turn", model))
+        self.chat_messages.append(list(messages))
+        if self.queued_turns:
+            return self.queued_turns.pop(0)
+        return ChatTurn(content=self.reply)
 
     async def chat_stream(
         self, model: str, messages: Iterable[Message], keep_alive: str | int
@@ -68,7 +89,8 @@ def fake_ollama() -> FakeOllamaClient:
 
 @pytest.fixture
 def app(settings: Settings, fake_ollama: FakeOllamaClient) -> FastAPI:
-    return create_app(settings=settings, ollama_client=fake_ollama)
+    # Empty registry -> no planner -> plain streaming chat path.
+    return create_app(settings=settings, ollama_client=fake_ollama, registry=ToolRegistry())
 
 
 @pytest.fixture
