@@ -20,6 +20,7 @@ from app.core.config import Settings
 from app.core.model_manager import ModelManager
 from app.core.ollama_client import Message, OllamaLike, ToolCallRequest
 from app.core.safety import ConfirmationRequest, Confirmer, SafetyGate
+from app.planner.fast_intents import match_fast_intent
 from app.planner.schemas import PlanExecution, PlanStep, RiskLevel, ToolResult
 from app.tools.registry import ToolRegistry
 
@@ -29,17 +30,25 @@ PLANNER_PROMPT = """\
 You are Jarvis, a macOS desktop assistant. You control the computer ONLY \
 through the provided tools; a separate system validates and executes them.
 
-Facts you DO NOT know and MUST fetch with a tool when one matches: the \
-current date or time, files and folders, clipboard contents, running apps, \
-system state (volume, screen), command output, web content. Answering \
-these from memory would be making the answer up.
+You CANNOT do anything yourself — every real action or fact requires a tool \
+call. This includes: the date/time, files and folders, clipboard, running \
+apps, system state (volume, screen), CONTROLLING MUSIC (play, pause, next, \
+skip, previous), OPENING APPS OR WEBSITES, running commands, and web content.
+
+Short commands are actions, not chit-chat. Map them to a tool call:
+  "next" / "skip"        -> media_control(action="next")
+  "pause" / "stop"       -> media_control(action="pause")
+  "play" / "resume"      -> media_control(action="play")
+  "open youtube"         -> open_url(target="youtube")
+  "open <website> in <browser>" -> open_url
 
 Rules:
-- Never claim to have done or checked something without a tool result \
-confirming it.
+- NEVER say you did, played, opened, or checked something unless a tool \
+result in this conversation confirms it. Claiming an action you did not take \
+via a tool is a lie — do not do it.
+- If no tool fits or the request is unclear, say so or ask; do not pretend.
 - If a tool was denied or failed, tell the user honestly.
-- When tools are not needed (greetings, conversation, questions about \
-yourself), just answer.
+- Only pure conversation (greetings, questions about yourself) skips tools.
 - Keep answers to one or two short sentences; they are often spoken aloud."""
 
 
@@ -83,6 +92,20 @@ class Planner:
     ) -> PlanExecution:
         """Execute the plan-act loop for one user turn."""
         execution = PlanExecution(utterance=utterance)
+
+        # Deterministic fast-path for terse, unambiguous commands ("next",
+        # "pause", …) that the small model handles unreliably. Still routed
+        # through the tool + safety layer; only tool *selection* is skipped.
+        fast_call = match_fast_intent(utterance)
+        if fast_call is not None and self._registry.get(fast_call.name) is not None:
+            step = await self._execute_tool_call(fast_call, confirmer)
+            execution.steps.append(step)
+            if step.result is not None:
+                execution.reply = step.result.summary
+                return execution
+            # Registry/execution hiccup — fall through to the LLM planner.
+            execution.steps.pop()
+
         system_prompt = PLANNER_PROMPT
         if memory_context:
             system_prompt = f"{PLANNER_PROMPT}\n\n{memory_context}"

@@ -8,6 +8,7 @@ reports that clearly when missing rather than failing cryptically.
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from datetime import datetime
 from typing import ClassVar, Literal
@@ -36,6 +37,72 @@ class OpenAppTool(Tool):
                 self.name, f"could not open {args.name!r}: {output.combined()}"
             )
         return ToolResult(tool=self.name, ok=True, summary=f"Opened {args.name}")
+
+
+# Common site shorthands so "open youtube" resolves without a full URL.
+_SITE_SHORTCUTS = {
+    "youtube": "https://www.youtube.com",
+    "gmail": "https://mail.google.com",
+    "google": "https://www.google.com",
+    "maps": "https://maps.google.com",
+    "github": "https://github.com",
+    "twitter": "https://twitter.com",
+    "x": "https://x.com",
+    "reddit": "https://www.reddit.com",
+    "chatgpt": "https://chat.openai.com",
+    "spotify": "https://open.spotify.com",
+    "netflix": "https://www.netflix.com",
+    "amazon": "https://www.amazon.com",
+    "whatsapp": "https://web.whatsapp.com",
+}
+
+
+class OpenUrlArgs(BaseModel):
+    target: str = Field(
+        description="A website to open in a browser: a full URL "
+        "(https://example.com), a domain (example.com), or a well-known site "
+        "name ('youtube', 'gmail')."
+    )
+    browser: str | None = Field(
+        default=None,
+        description="Browser app to use, e.g. 'Google Chrome', 'Safari', "
+        "'Firefox'. Omit for the system default browser.",
+    )
+
+
+class OpenUrlTool(Tool):
+    name: ClassVar[str] = "open_url"
+    description: ClassVar[str] = (
+        "Open a website or URL in the user's real, visible browser (optionally "
+        "a specific one like Chrome or Safari). Use this for 'open YouTube', "
+        "'open gmail in Chrome', 'go to github.com' — NOT open_app."
+    )
+    args_model: ClassVar[type[BaseModel]] = OpenUrlArgs
+    risk_level: ClassVar[RiskLevel] = RiskLevel.SAFE
+
+    @staticmethod
+    def _normalize(target: str) -> str:
+        cleaned = target.strip().strip("/")
+        key = cleaned.lower().removeprefix("www.")
+        if key in _SITE_SHORTCUTS:
+            return _SITE_SHORTCUTS[key]
+        if cleaned.startswith(("http://", "https://")):
+            return cleaned
+        return f"https://{cleaned}"
+
+    async def run(self, args: OpenUrlArgs) -> ToolResult:  # type: ignore[override]
+        url = self._normalize(args.target)
+        argv = ["/usr/bin/open", url]
+        if args.browser:
+            argv = ["/usr/bin/open", "-a", args.browser, url]
+        output = await run_command(argv)
+        if not output.ok:
+            hint = ""
+            if args.browser and "Unable to find application" in output.combined():
+                hint = f" (is {args.browser!r} installed? try without specifying a browser)"
+            return ToolResult.failure(self.name, f"could not open {url}: {output.combined()}{hint}")
+        where = f" in {args.browser}" if args.browser else ""
+        return ToolResult(tool=self.name, ok=True, summary=f"Opened {url}{where}")
 
 
 class QuitAppArgs(BaseModel):
@@ -193,6 +260,13 @@ class MediaTool(Tool):
                 return ToolResult.failure(
                     self.name, f"could not control {player}: {output.combined()}"
                 )
+            # Skipping implies the user wants to *hear* the result, so force
+            # playback — a bare `next track` can leave the player paused/silent
+            # in some states. Give the player a moment to switch tracks before
+            # reading back, so the reported title isn't the previous one.
+            if args.action in ("next", "previous"):
+                await run_osascript(f"tell application {quoted} to play")
+                await asyncio.sleep(0.4)
             # Read the real resulting state AND current track, so the reply is
             # grounded in what actually happened — "next" that didn't advance
             # can't be reported as success, and the model can't invent a title.

@@ -23,7 +23,7 @@ def test_discovery_finds_the_whole_suite() -> None:
         "finder_delete", "finder_compress", "finder_extract",
         "terminal_run", "git", "vscode_open",
         "clipboard_read", "clipboard_write",
-        "open_app", "quit_app", "list_running_apps", "volume", "screenshot",
+        "open_app", "open_url", "quit_app", "list_running_apps", "volume", "screenshot",
         "media_control", "window_arrange", "brightness",
         "roll_dice",  # the example plugin — proves plugin discovery works
     }
