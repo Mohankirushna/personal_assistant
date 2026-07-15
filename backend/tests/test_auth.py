@@ -18,7 +18,10 @@ TOKEN = "secret-token"
 def authed_client() -> TestClient:
     settings = Settings(_env_file=None, auth_token=TOKEN)
     app = create_app(
-        settings=settings, ollama_client=FakeOllamaClient(), registry=ToolRegistry()
+        settings=settings,
+        ollama_client=FakeOllamaClient(),
+        registry=ToolRegistry(),
+        enable_memory=False,
     )
     with TestClient(app) as client:
         yield client

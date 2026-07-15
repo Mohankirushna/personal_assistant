@@ -8,7 +8,7 @@ Optimized for a MacBook Air M2 (8GB RAM). No paid APIs. Works offline for most t
 
 ## Status
 
-**Phase 6 of 10 — Tools online.** Backend chat API + SwiftUI menu-bar app + a full
+**Phase 7 of 10 — Memory online.** Backend chat API + SwiftUI menu-bar app + a full
 local voice loop: "hey jarvis" wake word (openWakeWord), Whisper STT, LLM reply,
 spoken TTS response. See [backend/README.md](backend/README.md) for the quickstart
 and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
@@ -55,8 +55,8 @@ jarvis_v2/
 3. ~~macOS application (SwiftUI shell, permissions, backend IPC)~~ ✅
 4. ~~Voice (wake word, STT, TTS pipeline)~~ ✅
 5. ~~Planner (intent → structured tool-call plan)~~ ✅
-6. ~~Tools (Finder, Terminal, Git, VS Code, Clipboard, System) + plugins~~ ✅ ← you are here
-7. Memory (SQLite + vector store, semantic recall)
+6. ~~Tools (Finder, Terminal, Git, VS Code, Clipboard, System) + plugins~~ ✅
+7. ~~Memory (SQLite + vector store, semantic recall)~~ ✅ ← you are here
 8. Vision (on-demand screen understanding)
 9. Automation (Playwright browser control end-to-end)
 10. Testing (unit + integration test suite)

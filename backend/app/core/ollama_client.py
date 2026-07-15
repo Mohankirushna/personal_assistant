@@ -78,6 +78,8 @@ class OllamaLike(Protocol):
         tools: list[dict[str, Any]] | None = None,
     ) -> ChatTurn: ...
 
+    async def embed(self, model: str, texts: list[str]) -> list[list[float]]: ...
+
     def chat_stream(
         self, model: str, messages: Iterable[Message], keep_alive: str | int
     ) -> AsyncIterator[str]: ...
@@ -145,6 +147,14 @@ class OllamaClient:
                 for call in raw_calls
             ],
         )
+
+    async def embed(self, model: str, texts: list[str]) -> list[list[float]]:
+        """Embed texts with a local embedding model (e.g. nomic-embed-text)."""
+        try:
+            response = await self._client.embed(model=model, input=texts)
+        except Exception as exc:  # noqa: BLE001 - translated and re-raised
+            raise self._translate(exc, model) from exc
+        return [list(vector) for vector in response.embeddings]
 
     async def chat_stream(
         self, model: str, messages: Iterable[Message], keep_alive: str | int

@@ -46,6 +46,14 @@ def _voice_imports_available() -> bool:
     return True
 
 
+def _memory_imports_available() -> bool:
+    try:
+        import chromadb  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def create_app(
     settings: Settings | None = None,
     ollama_client: OllamaLike | None = None,
@@ -53,6 +61,8 @@ def create_app(
     tts: Any | None = None,
     wake_detector: Any | None = None,
     registry: ToolRegistry | None = None,
+    memory: Any | None = None,
+    enable_memory: bool | None = None,
 ) -> FastAPI:
     """Application factory.
 
@@ -62,6 +72,11 @@ def create_app(
     app_settings = settings or get_settings()
     overrides_given = stt is not None and tts is not None and wake_detector is not None
     voice_enabled = overrides_given or _voice_imports_available()
+    memory_enabled = (
+        enable_memory
+        if enable_memory is not None
+        else (memory is not None or _memory_imports_available())
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -83,14 +98,29 @@ def create_app(
             else None
         )
 
+        memory_service = memory
+        if memory_service is None and memory_enabled:
+            from app.memory.embeddings import OllamaEmbedder
+            from app.memory.service import MemoryService
+            from app.memory.store import MemoryStore
+            from app.memory.vector_store import VectorStore
+
+            memory_service = MemoryService(
+                MemoryStore(app_settings.sqlite_path),
+                VectorStore(app_settings.chroma_path, OllamaEmbedder(client)),
+                context_hits=app_settings.memory_context_hits,
+            )
+
         app.state.settings = app_settings
         app.state.ollama = client
         app.state.model_manager = model_manager
         app.state.sessions = sessions
         app.state.registry = tool_registry
         app.state.safety_gate = gate
+        app.state.memory = memory_service
         app.state.chat_service = ChatService(
-            client, model_manager, sessions, app_settings, planner=planner
+            client, model_manager, sessions, app_settings,
+            planner=planner, memory=memory_service,
         )
 
         if voice_enabled:
@@ -109,12 +139,13 @@ def create_app(
             )
 
         logger.info(
-            "Backend ready on %s:%s (llm=%s, auth=%s, voice=%s, tools=%d)",
+            "Backend ready on %s:%s (llm=%s, auth=%s, voice=%s, memory=%s, tools=%d)",
             app_settings.host,
             app_settings.port,
             app_settings.active_llm_model,
             "on" if app_settings.auth_token else "off",
             "on" if voice_enabled else "off (install the 'voice' extra)",
+            "on" if memory_service else "off (install the 'memory' extra)",
             len(tool_registry),
         )
         try:
@@ -136,6 +167,10 @@ def create_app(
         from app.api import voice
 
         app.include_router(voice.router)
+    if memory_enabled:
+        from app.api import memory as memory_api
+
+        app.include_router(memory_api.router)
     return app
 
 

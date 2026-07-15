@@ -52,6 +52,7 @@ def voice_app(settings: Settings, fake_ollama: FakeOllamaClient, fake_stt: FakeS
         tts=FakeTTS(),
         wake_detector=FakeWake(scores=[0.9]),
         registry=ToolRegistry(),
+        enable_memory=False,
     )
 
 

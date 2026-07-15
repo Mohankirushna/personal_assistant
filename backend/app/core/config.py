@@ -8,6 +8,7 @@ directory. See ``.env.example`` for the full list.
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import field_validator
@@ -75,6 +76,12 @@ class Settings(BaseSettings):
     vad_energy_threshold: float = 0.015
     max_utterance_seconds: float = 15.0
 
+    # Memory
+    data_dir: Path = Path("~/Library/Application Support/Jarvis")
+    # How many recalled memory snippets to give the planner per turn (kept
+    # tiny to protect the 3B model's context budget).
+    memory_context_hits: int = 2
+
     # Development escape hatch: skip confirmation prompts entirely.
     auto_approve: bool = False
 
@@ -93,6 +100,18 @@ class Settings(BaseSettings):
     @property
     def active_llm_model(self) -> str:
         return self.llm_power_model if self.power_mode else self.llm_model
+
+    @property
+    def resolved_data_dir(self) -> Path:
+        return self.data_dir.expanduser()
+
+    @property
+    def sqlite_path(self) -> Path:
+        return self.resolved_data_dir / "jarvis.db"
+
+    @property
+    def chroma_path(self) -> Path:
+        return self.resolved_data_dir / "chroma"
 
 
 @lru_cache

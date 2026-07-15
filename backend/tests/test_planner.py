@@ -198,7 +198,9 @@ def test_ws_confirmation_roundtrip(
     """Full transport test: WS chat asks, client approves, tool runs."""
     fake = FakeOllamaClient()
     fake.queued_turns = [tool_call("wipe", path="/tmp/y"), respond("Wiped it.")]
-    app = create_app(settings=settings, ollama_client=fake, registry=registry)
+    app = create_app(
+        settings=settings, ollama_client=fake, registry=registry, enable_memory=False
+    )
     with TestClient(app) as client, client.websocket_connect("/ws/chat") as ws:
         ws.send_json({"message": "wipe /tmp/y"})
         event = ws.receive_json()
@@ -218,7 +220,9 @@ def test_ws_confirmation_denied(
 ) -> None:
     fake = FakeOllamaClient()
     fake.queued_turns = [tool_call("wipe", path="/tmp/z"), respond("Okay, I won't.")]
-    app = create_app(settings=settings, ollama_client=fake, registry=registry)
+    app = create_app(
+        settings=settings, ollama_client=fake, registry=registry, enable_memory=False
+    )
     with TestClient(app) as client, client.websocket_connect("/ws/chat") as ws:
         ws.send_json({"message": "wipe /tmp/z"})
         assert ws.receive_json()["type"] == "confirm_request"
@@ -234,7 +238,9 @@ def test_rest_chat_denies_destructive(
     """Plain REST has no way to ask, so destructive calls are denied."""
     fake = FakeOllamaClient()
     fake.queued_turns = [tool_call("wipe", path="/tmp/q"), respond("That needs the app.")]
-    app = create_app(settings=settings, ollama_client=fake, registry=registry)
+    app = create_app(
+        settings=settings, ollama_client=fake, registry=registry, enable_memory=False
+    )
     with TestClient(app) as client:
         response = client.post("/chat", json={"message": "wipe /tmp/q"})
         assert response.status_code == 200
@@ -242,7 +248,12 @@ def test_rest_chat_denies_destructive(
 
 
 def test_tools_endpoint_lists_registered(settings: Settings, registry: ToolRegistry) -> None:
-    app = create_app(settings=settings, ollama_client=FakeOllamaClient(), registry=registry)
+    app = create_app(
+        settings=settings,
+        ollama_client=FakeOllamaClient(),
+        registry=registry,
+        enable_memory=False,
+    )
     with TestClient(app) as client:
         body = client.get("/tools").json()
     names = {tool["name"] for tool in body}

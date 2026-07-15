@@ -79,11 +79,15 @@ class Planner:
         history: list[Message],
         confirmer: Confirmer | None = None,
         max_steps: int = 5,
+        memory_context: str | None = None,
     ) -> PlanExecution:
         """Execute the plan-act loop for one user turn."""
         execution = PlanExecution(utterance=utterance)
+        system_prompt = PLANNER_PROMPT
+        if memory_context:
+            system_prompt = f"{PLANNER_PROMPT}\n\n{memory_context}"
         messages: list[Message] = [
-            {"role": "system", "content": PLANNER_PROMPT},
+            {"role": "system", "content": system_prompt},
             *history,
             {"role": "user", "content": utterance},
         ]

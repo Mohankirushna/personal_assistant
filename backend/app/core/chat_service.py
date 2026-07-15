@@ -18,6 +18,7 @@ from app.core.model_manager import ModelManager
 from app.core.ollama_client import Message, OllamaLike
 from app.core.safety import Confirmer
 from app.core.sessions import ChatSession, SessionStore
+from app.memory.service import MemoryService
 from app.planner.planner import Planner
 
 logger = logging.getLogger(__name__)
@@ -31,12 +32,14 @@ class ChatService:
         sessions: SessionStore,
         settings: Settings,
         planner: Planner | None = None,
+        memory: MemoryService | None = None,
     ) -> None:
         self._client = client
         self._model_manager = model_manager
         self._sessions = sessions
         self._settings = settings
         self._planner = planner
+        self._memory = memory
 
     def open_session(self, session_id: str | None) -> ChatSession:
         return self._sessions.ensure(session_id)
@@ -55,10 +58,18 @@ class ChatService:
         if self._planner is not None:
             history = list(session.messages)
             self._sessions.append(session, "user", user_message)
+            memory_context = (
+                await self._memory.context_for(user_message) if self._memory else None
+            )
             execution = await self._planner.run(
-                user_message, history=history, confirmer=confirmer
+                user_message,
+                history=history,
+                confirmer=confirmer,
+                memory_context=memory_context,
             )
             self._sessions.append(session, "assistant", execution.reply)
+            if self._memory:
+                await self._memory.record_turn(session.id, execution)
             return execution.reply
 
         self._sessions.append(session, "user", user_message)

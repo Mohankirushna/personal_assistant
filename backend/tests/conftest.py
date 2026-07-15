@@ -4,6 +4,7 @@ suite runs without Ollama installed or any model pulled."""
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterable
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -70,6 +71,22 @@ class FakeOllamaClient:
     async def unload_model(self, model: str) -> None:
         self.calls.append(("unload", model))
 
+    async def embed(self, model: str, texts: list[str]) -> list[list[float]]:
+        self.calls.append(("embed", model))
+        # Deterministic 4-dim vectors: direction picked by keyword.
+        vectors = []
+        for text in texts:
+            lowered = text.lower()
+            vectors.append(
+                [
+                    1.0 if "alpha" in lowered else 0.0,
+                    1.0 if "beta" in lowered else 0.0,
+                    1.0 if "gamma" in lowered else 0.0,
+                    0.1,
+                ]
+            )
+        return vectors
+
     async def loaded_models(self) -> list[str] | None:
         return ["fake-model:latest"]
 
@@ -78,8 +95,10 @@ class FakeOllamaClient:
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return Settings(_env_file=None)
+def settings(tmp_path: Path) -> Settings:
+    # data_dir always points at the test's tmp dir so no test can ever
+    # touch the user's real ~/Library/Application Support/Jarvis.
+    return Settings(_env_file=None, data_dir=tmp_path / "jarvis-data")
 
 
 @pytest.fixture
@@ -89,8 +108,13 @@ def fake_ollama() -> FakeOllamaClient:
 
 @pytest.fixture
 def app(settings: Settings, fake_ollama: FakeOllamaClient) -> FastAPI:
-    # Empty registry -> no planner -> plain streaming chat path.
-    return create_app(settings=settings, ollama_client=fake_ollama, registry=ToolRegistry())
+    # Empty registry -> no planner -> plain streaming chat path; memory off.
+    return create_app(
+        settings=settings,
+        ollama_client=fake_ollama,
+        registry=ToolRegistry(),
+        enable_memory=False,
+    )
 
 
 @pytest.fixture
