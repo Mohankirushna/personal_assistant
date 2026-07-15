@@ -193,15 +193,32 @@ class MediaTool(Tool):
                 return ToolResult.failure(
                     self.name, f"could not control {player}: {output.combined()}"
                 )
-            # Report the real resulting state, not just that a command was sent —
-            # so we never claim "paused" while audio is still playing.
+            # Read the real resulting state AND current track, so the reply is
+            # grounded in what actually happened — "next" that didn't advance
+            # can't be reported as success, and the model can't invent a title.
             state_out = await run_osascript(f"tell application {quoted} to player state")
             state = state_out.stdout.strip() or "unknown"
+            track_out = await run_osascript(
+                f'tell application {quoted} to name of current track'
+            )
+            artist_out = await run_osascript(
+                f'tell application {quoted} to artist of current track'
+            )
+            track = track_out.stdout.strip() if track_out.ok else ""
+            artist = artist_out.stdout.strip() if artist_out.ok else ""
+            now = f"'{track}'" + (f" by {artist}" if artist else "") if track else "nothing"
+            verb_past = {"play": "playing", "pause": "paused",
+                         "next": "skipped to", "previous": "went back to"}[args.action]
+            summary = (
+                f"{player} is {state}."
+                if args.action in ("play", "pause")
+                else f"{player} {verb_past} {now} ({state})."
+            )
             return ToolResult(
                 tool=self.name,
                 ok=True,
-                summary=f"{player} is now {state} (after '{args.action}').",
-                data={"player": player, "state": state},
+                summary=summary,
+                data={"player": player, "state": state, "track": track, "artist": artist},
             )
         return ToolResult.failure(self.name, "Neither Music nor Spotify is running.")
 
