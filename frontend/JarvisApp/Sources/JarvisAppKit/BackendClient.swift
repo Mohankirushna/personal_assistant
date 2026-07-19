@@ -30,6 +30,19 @@ public struct BackendClient {
         return try JSONDecoder().decode(HealthResponse.self, from: data)
     }
 
+    /// True if this client's credentials are accepted by an authenticated
+    /// endpoint. /health cannot tell — it is deliberately auth-exempt, so a
+    /// backend left over from a previous session looks healthy while
+    /// rejecting every real call.
+    public func canAuthenticate() async -> Bool {
+        let request = authorizedRequest(path: "tools")
+        guard
+            let (_, response) = try? await session.data(for: request),
+            let http = response as? HTTPURLResponse
+        else { return false }
+        return http.statusCode != 401 && http.statusCode != 403
+    }
+
     public func chat(message: String, sessionId: String?) async throws -> ChatResponse {
         var request = authorizedRequest(path: "chat")
         request.httpMethod = "POST"

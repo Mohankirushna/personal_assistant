@@ -59,6 +59,10 @@ target.
 
 ## Known limitations
 
-- If the app is force-killed (not quit via the menu), a backend it spawned
-  keeps running; quit via the menu ("Quit Jarvis") terminates it cleanly.
 - The bundle is ad-hoc signed; first launch may require right-click → Open.
+
+(A force-killed app used to leak its spawned backend, which then blocked
+the next session with an unknown auth token. The backend is now leashed to
+the app via its stdin pipe — `JARVIS_EXIT_ON_STDIN_CLOSE` — and exits when
+the app dies, however it dies; the app also refuses to attach to a backend
+it cannot authenticate to, with an error naming the fix.)

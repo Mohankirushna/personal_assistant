@@ -9,6 +9,7 @@ import Foundation
 ///   3. ../../backend relative to the app binary (the dev-tree layout).
 public final class BackendProcessManager {
     private var process: Process?
+    private var stdinLeash: Pipe?
     public let port: Int
     /// Token used for a backend we spawn; nil when attaching to an
     /// externally started backend (dev mode, no auth).
@@ -83,7 +84,14 @@ public final class BackendProcessManager {
     /// Throws if none is running and none could be spawned.
     public func attachOrSpawn() async throws -> BackendClient {
         if await backendIsRunning() {
-            return BackendClient(baseURL: baseURL, token: nil)
+            // /health alone is not enough: a backend leaked by a force-killed
+            // app session still answers it but requires that session's token,
+            // so every authenticated call (chat, /ws/voice) would fail.
+            let client = BackendClient(baseURL: baseURL, token: nil)
+            guard await client.canAuthenticate() else {
+                throw SpawnError.staleBackendOnPort(port)
+            }
+            return client
         }
         guard let backendDir = Self.resolveBackendDirectory() else {
             throw SpawnError.backendDirectoryNotFound
@@ -117,13 +125,24 @@ public final class BackendProcessManager {
         var env = ProcessInfo.processInfo.environment
         env["JARVIS_AUTH_TOKEN"] = token
         env["JARVIS_PORT"] = String(port)
+        // Leash the backend to this process: we hold the write end of its
+        // stdin, and the backend exits on stdin EOF. If this app is
+        // force-killed (launchctl bootout, crash) the pipe closes and the
+        // backend follows, instead of leaking on the port with a token no
+        // future session knows.
+        env["JARVIS_EXIT_ON_STDIN_CLOSE"] = "1"
+        let leash = Pipe()
+        process.standardInput = leash
         process.environment = env
         try process.run()
         self.process = process
+        self.stdinLeash = leash
     }
 
     public func stop() {
         process?.terminate()
+        try? stdinLeash?.fileHandleForWriting.close()
+        stdinLeash = nil
         process = nil
         token = nil
     }
@@ -132,6 +151,7 @@ public final class BackendProcessManager {
         case backendDirectoryNotFound
         case uvNotFound
         case backendDidNotBecomeHealthy
+        case staleBackendOnPort(Int)
 
         public var errorDescription: String? {
             switch self {
@@ -145,6 +165,10 @@ public final class BackendProcessManager {
             case .backendDidNotBecomeHealthy:
                 return "Spawned the backend but /health never came up. "
                     + "Check that `uv run jarvis-backend` works in the backend directory."
+            case let .staleBackendOnPort(port):
+                return "A Jarvis backend from a previous session is still running on port "
+                    + "\(port) and requires a token this session doesn't have. Quit it "
+                    + "(pkill -f jarvis-backend) and Jarvis will start a fresh one."
             }
         }
     }

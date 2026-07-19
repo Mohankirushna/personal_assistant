@@ -115,6 +115,18 @@ expect(
     "unknown tool falls back to a readable name")
 expect(ToolActivity.phrase(forTool: "") == "Working on it", "empty tool name is handled")
 
+// MARK: Stale-backend detection
+let staleError = BackendProcessManager.SpawnError.staleBackendOnPort(8765)
+expect(
+    staleError.errorDescription?.contains("8765") == true
+        && staleError.errorDescription?.contains("previous session") == true,
+    "stale backend error names the port and the cause")
+
+// canAuthenticate must fail closed: no server listening -> not authenticated.
+let unreachable = BackendClient(baseURL: URL(string: "http://127.0.0.1:59999")!)
+let authResult = await unreachable.canAuthenticate()
+expect(authResult == false, "canAuthenticate is false when nothing is listening")
+
 if failures > 0 {
     print("\n\(failures) failure(s)")
     exit(1)

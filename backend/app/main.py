@@ -14,8 +14,13 @@ Voice endpoints are mounted only when the `voice` extra is installed
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from collections.abc import AsyncIterator
+import os
+import signal
+import sys
+import threading
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -234,10 +239,42 @@ def create_app(
     return app
 
 
+def watch_stdin_and_terminate(
+    stream: Any | None = None,
+    on_eof: Callable[[], None] | None = None,
+) -> threading.Thread:
+    """Exit when stdin reaches EOF — i.e. when the process that spawned us
+    (the menu-bar app, holding the write end of our stdin pipe) dies.
+
+    A force-killed app never runs its clean-quit path, which used to leak an
+    authenticated backend on the port; the next app session would then attach
+    to a backend whose token it doesn't know and every authenticated call
+    (including /ws/voice) failed. SIGTERM lets uvicorn shut down gracefully,
+    unloading models via the lifespan.
+    """
+
+    def _watch() -> None:
+        source = stream if stream is not None else sys.stdin.buffer
+        with contextlib.suppress(Exception):
+            while source.read(4096):
+                pass  # discard until EOF
+        logger.info("stdin closed (parent app exited) — shutting down")
+        if on_eof is not None:
+            on_eof()
+        else:
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    thread = threading.Thread(target=_watch, name="stdin-watchdog", daemon=True)
+    thread.start()
+    return thread
+
+
 def run() -> None:
     """Console entrypoint (`uv run jarvis-backend`)."""
     settings = get_settings()
     setup_logging(settings.log_level)
+    if os.environ.get("JARVIS_EXIT_ON_STDIN_CLOSE") == "1":
+        watch_stdin_and_terminate()
     uvicorn.run(
         create_app(settings),
         host=settings.host,
