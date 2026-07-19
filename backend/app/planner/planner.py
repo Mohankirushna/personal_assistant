@@ -290,6 +290,67 @@ class Planner:
             )
         ]
 
+    def _prune_tools(
+        self, utterance: str, max_tools: int = 18
+    ) -> set[str] | None:
+        """Per-request tool catalog pruning via keyword matching. Returns a
+        set of tool names to include, or None (include all) if pruning would
+        lose too much.
+
+        Motivation: the full 36-tool catalog is ~4.2K tokens before the
+        planner prompt (~1.3K), which overflows Ollama's default 4K context.
+        Pruning to ~18 tools (top matches only) cuts tool spec overhead
+        in half while keeping the model's view focused on what matters.
+        Fallback: if no tools match, or if matching yields < 3 tools (too
+        restrictive), return None (send all tools).
+        """
+        # Tokenize the utterance: lowercase, split on whitespace and punctuation.
+        import string
+
+        normalized = utterance.lower()
+        tokens = {
+            w
+            for w in re.split(r"[\s\-_.,:;!?()\"]+", normalized)
+            if w and len(w) > 2  # skip common noise (a, an, to, by, etc.)
+        }
+        if not tokens:
+            return None  # empty utterance; send all tools
+
+        # Score each tool: match against name, description, and keyword synonyms.
+        scores: dict[str, float] = {}
+        for tool in self._registry.list():
+            score = 0.0
+            name_tokens = set(re.split(r"[\s\-_.]+", tool.name.lower()))
+            desc_tokens = set(re.split(r"[\s\-_.,:;!?()\"]+", tool.description.lower()))
+
+            # Exact name match is highest priority.
+            if tool.name.lower() in tokens or tokens & name_tokens:
+                score += 100
+
+            # Keywords in the description get a boost.
+            if tokens & desc_tokens:
+                score += 10
+
+            # Keyword prefix matches (e.g., "find" matches "finder_*").
+            for token in tokens:
+                if tool.name.lower().startswith(token):
+                    score += 50
+
+            scores[tool.name] = score
+
+        # Filter to scored tools; fallback if too few.
+        scored = sorted(
+            (name for name, score in scores.items() if score > 0),
+            key=lambda name: scores[name],
+            reverse=True,
+        )
+        if len(scored) < 2:
+            # Pruning was too aggressive; send all tools.
+            return None
+
+        # Return top N scored tools (or all if < max_tools qualify).
+        return set(scored[:max_tools])
+
     @staticmethod
     async def _notify(on_step: StepObserver | None, tool: str, status: str) -> None:
         if on_step is None:
@@ -366,9 +427,21 @@ class Planner:
             {"role": "user", "content": utterance},
         ]
         model = await self._model_manager.ensure_llm()
-        tool_specs = self._tool_specs(allowed_tools)
+        # Prune tool catalog per request to stay within context budget. The full
+        # 36-tool catalog is ~4.2K tokens, which overflows the default 4K context
+        # when paired with the planner prompt (~1.3K). Pruning to top-scoring
+        # tools (matched against the utterance) halves the overhead.
+        pruned_tools = self._prune_tools(utterance)
+        pruned_allowed = (
+            allowed_tools & pruned_tools if pruned_tools and allowed_tools else
+            pruned_tools or allowed_tools
+        )
+        tool_specs = self._tool_specs(pruned_allowed)
         # Greedy decoding: tool selection must be deterministic, not sampled.
-        options = {"temperature": self._settings.planner_temperature}
+        options = {
+            "temperature": self._settings.planner_temperature,
+            "num_ctx": self._settings.llm_context_size,
+        }
 
         for _step in range(max_steps):
             turn = await self._client.chat_turn(

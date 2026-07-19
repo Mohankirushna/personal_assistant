@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     # sampling (~0.8) makes tool choice flip between runs for identical
     # requests. 0.0 = deterministic. Bump slightly if replies feel too flat.
     planner_temperature: float = 0.0
+    # Context window (num_ctx in Ollama): must accommodate the planner prompt
+    # (~1.3K tokens), tool catalog (~4.2K for 36 tools), and conversation history.
+    # 4K is too small (specs alone overflow ~5.5K tokens). 8K is safe for the 3B
+    # model on 8GB RAM; 16K for power_mode (7B model).
+    llm_context_size: int = 8192
 
     # Voice
     whisper_model: str = "base.en"
