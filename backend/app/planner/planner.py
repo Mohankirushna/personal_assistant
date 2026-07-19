@@ -305,8 +305,6 @@ class Planner:
         restrictive), return None (send all tools).
         """
         # Tokenize the utterance: lowercase, split on whitespace and punctuation.
-        import string
-
         normalized = utterance.lower()
         tokens = {
             w

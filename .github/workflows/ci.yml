@@ -35,12 +35,16 @@ jobs:
         run: uv run pytest -m "not integration" -q
 
   frontend:
-    runs-on: macos-14
+    # macos-15: Package.swift declares swift-tools-version 6.0, which needs
+    # Xcode 16 / Swift 6 — newer than the macos-14 image's default toolchain.
+    runs-on: macos-15
     defaults:
       run:
         working-directory: frontend/JarvisApp
     steps:
       - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
       - name: Build
         run: swift build
       - name: Self-tests

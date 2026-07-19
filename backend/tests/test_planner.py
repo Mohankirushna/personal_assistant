@@ -621,14 +621,14 @@ def test_tool_pruning_saves_tokens(settings: Settings, fake_ollama: FakeOllamaCl
     all_json = json.dumps(all_specs)
     base_tokens = len(all_json) // 4
 
-    test_cases = [
-        ("what time is it", ["clock"]),           # ~3 tools
-        ("take a screenshot", ["screenshot"]),    # ~2 tools
-        ("play some music", ["music", "spotify"]),  # ~4 tools
-        ("find my files", ["finder"]),            # ~9 tools
+    utterances = [
+        "what time is it",     # ~3 tools (clock, ...)
+        "take a screenshot",   # ~2 tools
+        "play some music",     # ~4 tools (media, spotify, youtube, ...)
+        "find my files",       # ~9 tools (finder_*)
     ]
 
-    for utterance, expected_keywords in test_cases:
+    for utterance in utterances:
         pruned_names = planner._prune_tools(utterance)
         assert pruned_names is not None, f"{utterance!r} should prune to some tools"
         assert len(pruned_names) < len(
