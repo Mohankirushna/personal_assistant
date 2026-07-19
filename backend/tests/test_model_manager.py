@@ -63,3 +63,26 @@ async def test_release_all(
     await manager.release_all()
     assert manager.current_kind is HeavyModelKind.NONE
     assert ("unload", settings.llm_model) in fake_ollama.calls
+
+
+def test_injected_client_is_never_prewarmed(
+    settings: Settings, fake_ollama: FakeOllamaClient
+) -> None:
+    """Startup pre-warm (prewarm_llm, default on) only applies to the real
+    production client. An injected client — every test in this suite — must
+    see no phantom load calls, or call-recording assertions would break."""
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+    from app.tools.registry import ToolRegistry
+
+    assert settings.prewarm_llm is True
+    app = create_app(
+        settings=settings,
+        ollama_client=fake_ollama,
+        registry=ToolRegistry(),
+        enable_memory=False,
+    )
+    with TestClient(app):
+        pass
+    assert ("load", settings.llm_model) not in fake_ollama.calls

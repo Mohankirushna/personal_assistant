@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     vision_model: str = "qwen2.5vl:3b"
     # How long Ollama keeps the LLM resident after the last request.
     llm_keep_alive: str = "30m"
+    # Load the LLM into Ollama at startup (in the background) so the first
+    # command doesn't pay the multi-second model-load latency.
+    prewarm_llm: bool = True
     request_timeout_seconds: float = 120.0
 
     # Chat

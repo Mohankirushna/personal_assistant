@@ -298,7 +298,7 @@ def match_fast_intent(utterance: str) -> ToolCallRequest | None:
         return ToolCallRequest(name="browser_search", arguments=args)
     youtube_play = _YOUTUBE_PLAY.fullmatch(normalized)
     if youtube_play:
-        args: dict[str, object] = {"query": youtube_play.group("query")}
+        args = {"query": youtube_play.group("query")}
         if browser := youtube_play.group("browser"):
             args["browser"] = _BROWSER_NAMES[browser]
         return ToolCallRequest(name="youtube_play", arguments=args)

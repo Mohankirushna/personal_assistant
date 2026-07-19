@@ -13,6 +13,7 @@ Voice endpoints are mounted only when the `voice` extra is installed
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -181,9 +182,29 @@ def create_app(
             "on" if memory_service else "off (install the 'memory' extra)",
             len(tool_registry),
         )
+
+        # Pre-warm the LLM so the first command doesn't pay Ollama's
+        # multi-second cold load. Background task: startup must not block on
+        # it, and a failure (Ollama not running yet) is non-fatal — the first
+        # real request will load the model as before. Only when we own a real
+        # client: injected test doubles shouldn't see phantom load calls.
+        prewarm_task: asyncio.Task[Any] | None = None
+        if owns_client and app_settings.prewarm_llm:
+
+            async def _prewarm() -> None:
+                try:
+                    await model_manager.ensure_llm()
+                    logger.info("LLM pre-warmed")
+                except Exception:  # noqa: BLE001 - best-effort warm-up
+                    logger.warning("LLM pre-warm failed; will load on first request")
+
+            prewarm_task = asyncio.create_task(_prewarm())
+
         try:
             yield
         finally:
+            if prewarm_task is not None and not prewarm_task.done():
+                prewarm_task.cancel()
             active_browser = getattr(app.state, "browser_session", None)
             if active_browser is not None:
                 try:

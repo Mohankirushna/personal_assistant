@@ -1283,7 +1283,7 @@ voice = [
 
 [package.metadata]
 requires-dist = [
-    { name = "chromadb", marker = "extra == 'memory'", specifier = ">=0.5" },
+    { name = "chromadb", marker = "extra == 'memory'", specifier = ">=0.6" },
     { name = "ddgs", marker = "extra == 'browser'", specifier = ">=9.0" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.0" },

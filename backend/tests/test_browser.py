@@ -11,8 +11,8 @@ from app.planner.schemas import RiskLevel
 
 # Check for optional dependencies directly
 try:
-    import playwright  # noqa: F401
     import ddgs  # noqa: F401
+    import playwright  # noqa: F401
     _has_browser_deps = True
 except ImportError:
     _has_browser_deps = False

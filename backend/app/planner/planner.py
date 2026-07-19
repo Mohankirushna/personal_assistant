@@ -433,7 +433,7 @@ class Planner:
                     )
                 )
                 execution.steps.append(step)
-                if is_repeat:
+                if is_repeat and step.result is not None:
                     execution.reply = step.result.summary
                     return execution
                 if _is_hallucinating_unrelated_actions(execution.steps, utterance):

@@ -64,6 +64,8 @@ def test_full_chat_stack_with_real_llm(tmp_path: Path) -> None:
 async def test_voice_transcription_to_reply(tmp_path: Path) -> None:
     """Real Whisper transcription of synthesized speech, driving a real
     planner turn over the voice WebSocket."""
+    pytest.importorskip("faster_whisper", reason="voice extra not installed")
+    pytest.importorskip("openwakeword", reason="voice extra not installed")
     from fastapi.testclient import TestClient
 
     settings = Settings(_env_file=None, data_dir=tmp_path / "data")
