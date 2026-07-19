@@ -93,6 +93,10 @@ summary/list, not as the default for an ordinary lookup.
 When the user asks to play music but does not name a platform, ask whether
 they want YouTube, Spotify, or Apple Music. Do not choose a platform yourself.
 
+File operations: "list/show files", "create folder", "delete file" → use
+finder_* tools (faster, no shell dependency). Use terminal_run only for
+complex shell logic or piped commands (grepping, parsing, chaining).
+
 Rules:
 - NEVER say you did, played, opened, or checked something unless a tool \
 result in this conversation confirms it. Claiming an action you did not take \
@@ -198,6 +202,46 @@ def sanitize_spoken_reply(text: str) -> str:
     text = _MD_LINK.sub(lambda m: m.group(1), text)
     text = text.replace("**", "").replace("`", "")
     return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
+def _has_unrelated_denials(steps: list[PlanStep], threshold: int = 2) -> bool:
+    """Detect when the model proposes unrelated actions after denials.
+    This catches hallucinations like: original request is 'create a folder',
+    model tries mkdir (denied), then proposes unrelated system_power calls."""
+    denied_steps = [s for s in steps if s.denied and s.result is not None]
+    if len(denied_steps) < threshold:
+        return False
+
+    recent_denied = denied_steps[-threshold:]
+    tools_used = {s.tool for s in recent_denied}
+    return len(tools_used) == 1  # repeated same tool despite denials is ok-ish
+
+
+def _is_hallucinating_unrelated_actions(
+    steps: list[PlanStep], utterance: str
+) -> bool:
+    """Detect hallucination: model produces repeated failed denials of
+    unrelated actions. E.g., request for 'create folder' gets 1 terminal_run
+    attempt (denied), then 2+ system_power shutdown attempts (all denied)."""
+    if len(steps) < 2:
+        return False
+
+    # If the last 2+ steps are both denied, and they're a different tool
+    # from the first successful attempt, the model is hallucinating.
+    recent_denied = [s for s in steps[-3:] if s.denied]
+    if len(recent_denied) < 2:
+        return False
+
+    # All recent denials are the same unrelated tool = hallucination.
+    recent_tools = [s.tool for s in recent_denied]
+    if len(set(recent_tools)) == 1:
+        logger.warning(
+            f"Hallucination detected: {len(recent_denied)} repeated denials "
+            f"of {recent_tools[0]} for '{utterance[:60]}'"
+        )
+        return True
+
+    return False
 
 
 class Planner:
@@ -391,6 +435,15 @@ class Planner:
                 execution.steps.append(step)
                 if is_repeat:
                     execution.reply = step.result.summary
+                    return execution
+                if _is_hallucinating_unrelated_actions(execution.steps, utterance):
+                    # Clear failed steps so the reply is honest ("couldn't" not
+                    # "tried and failed"). This prevents fabricated success claims.
+                    execution.steps.clear()
+                    execution.reply = (
+                        "I wasn't able to work out how to do that. "
+                        "Could you rephrase, or break it into smaller steps?"
+                    )
                     return execution
                 if step.result is None:
                     outcome = "no result"

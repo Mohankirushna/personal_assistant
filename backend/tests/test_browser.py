@@ -9,18 +9,22 @@ import pytest
 
 from app.planner.schemas import RiskLevel
 
-# Skip all tests if optional dependencies are missing
+# Check for optional dependencies directly
 try:
-    from app.tools.browser.browser import (
-        BrowserDownloadTool,
-        BrowserFillTool,
-        BrowserOpenTool,
-        BrowserSearchTool,
-        BrowserSession,
-    )
+    import playwright  # noqa: F401
+    import ddgs  # noqa: F401
     _has_browser_deps = True
-except (ImportError, ModuleNotFoundError):
+except ImportError:
     _has_browser_deps = False
+
+# Import browser tools (which only lazily import playwright/ddgs at runtime)
+from app.tools.browser.browser import (
+    BrowserDownloadTool,
+    BrowserFillTool,
+    BrowserOpenTool,
+    BrowserSearchTool,
+    BrowserSession,
+)
 
 pytestmark = pytest.mark.skipif(not _has_browser_deps, reason="playwright/ddgs not installed")
 
