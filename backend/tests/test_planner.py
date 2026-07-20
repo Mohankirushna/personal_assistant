@@ -98,6 +98,28 @@ class WhatsAppEchoTool(Tool):
         )
 
 
+class WebAnswerArgs(BaseModel):
+    query: str
+
+
+class FakeWebAnswerTool(Tool):
+    """Stand-in for web_answer that returns fixed page content, so the
+    fetch-then-summarize flow can be tested without the network."""
+
+    name: ClassVar[str] = "web_answer"
+    description: ClassVar[str] = "Read the web (test double)."
+    args_model: ClassVar[type[BaseModel]] = WebAnswerArgs
+    risk_level: ClassVar[RiskLevel] = RiskLevel.SAFE
+
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.calls = 0
+
+    async def run(self, args: WebAnswerArgs) -> ToolResult:  # type: ignore[override]
+        self.calls += 1
+        return ToolResult(tool=self.name, ok=True, summary=self.content, data={"query": args.query})
+
+
 def tool_call(tool: str, **args: object) -> ChatTurn:
     return ChatTurn(tool_calls=[ToolCallRequest(name=tool, arguments=dict(args))])
 
@@ -520,6 +542,29 @@ def whatsapp_planner(
 
 async def _approve(request: ConfirmationRequest) -> bool:
     return True
+
+
+async def test_web_answer_fetches_then_model_answers_from_the_content(
+    settings: Settings, fake_ollama: FakeOllamaClient
+) -> None:
+    """A bare question fast-paths to web_answer, whose fetched content is fed
+    to the model to synthesize a spoken reply — not read aloud verbatim."""
+    web = FakeWebAnswerTool(content="The iPhone 15 starts at $799 in the US.")
+    reg = ToolRegistry()
+    reg.register(web)
+    manager = ModelManager(fake_ollama, settings)
+    planner = Planner(fake_ollama, manager, reg, SafetyGate(), settings)
+    fake_ollama.queued_turns = [respond("The iPhone 15 starts at $799.")]
+
+    execution = await planner.run("what is the price of iphone 15", history=[])
+
+    assert web.calls == 1  # deterministic fetch happened
+    assert execution.steps[0].tool == "web_answer"
+    # The reply is the model's synthesis, and the raw page text was given to it.
+    assert execution.reply == "The iPhone 15 starts at $799."
+    sent_messages = fake_ollama.chat_messages[0]
+    tool_msgs = [m for m in sent_messages if m.get("role") == "tool"]
+    assert any("starts at $799 in the US" in str(m.get("content")) for m in tool_msgs)
 
 
 async def test_send_pronoun_reference_forwards_last_url(

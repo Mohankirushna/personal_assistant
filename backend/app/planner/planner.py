@@ -71,7 +71,8 @@ finder_list(path="~/Downloads")
   "what's my next meeting" / "show my calendar" -> calendar(day="today")
   "what's on my calendar tomorrow" -> calendar(day="tomorrow")
   "open <website> in <browser>" -> open_url
-  "search <topic>" -> brave_search_open_first(query=<topic>)
+  "what is/who is/how ... <question>" -> web_answer(query=<question>)  # read + answer
+  "search <topic>" -> brave_search_open_first(query=<topic>)  # opens a page
   "search <topic> in <browser>" -> browser_search(query=<topic>, browser=<browser>)
   "search Wikipedia for <topic>" -> browser_search(query=<topic>, engine="wikipedia")
   "open YouTube and play <song>" -> youtube_play(query=<song>)
@@ -150,6 +151,10 @@ def _tool_spec(name: str, description: str, schema: dict[str, Any]) -> dict[str,
         "function": {"name": name, "description": description, "parameters": schema},
     }
 
+
+# Fast-path tools that return raw content to read rather than a finished
+# reply — their output is handed to the model to synthesize a spoken answer.
+_ANSWER_FROM_RESULT_TOOLS = {"web_answer"}
 
 _MD_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 _MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
@@ -421,16 +426,24 @@ class Planner:
                     name="whatsapp_send",
                     arguments={**fast_call.arguments, "message": content},
                 )
+        # A tool whose result is raw content (web page text), not a finished
+        # reply, is run deterministically here but its output is then handed
+        # to the model to synthesize a spoken answer, rather than read aloud.
+        prefetched: PlanStep | None = None
         if fast_call is not None and self._registry.get(fast_call.name) is not None:
             await self._notify(on_step, fast_call.name, "running")
             step = await self._execute_tool_call(fast_call, confirmer)
             await self._notify(on_step, fast_call.name, self._step_status(step))
             execution.steps.append(step)
             if step.result is not None:
-                execution.reply = step.result.summary
-                return execution
-            # Registry/execution hiccup — fall through to the LLM planner.
-            execution.steps.pop()
+                if fast_call.name in _ANSWER_FROM_RESULT_TOOLS and step.result.ok:
+                    prefetched = step  # summarized by the model below
+                else:
+                    execution.reply = step.result.summary
+                    return execution
+            else:
+                # Registry/execution hiccup — fall through to the LLM planner.
+                execution.steps.pop()
 
         system_prompt = PLANNER_PROMPT
         if self._settings.user_full_name:
@@ -445,6 +458,35 @@ class Planner:
             *history,
             {"role": "user", "content": utterance},
         ]
+        if prefetched is not None and prefetched.result is not None:
+            # Seed the conversation with the deterministic fetch so the model
+            # answers from real content instead of trying to search itself.
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {"function": {"name": prefetched.tool, "arguments": prefetched.args}}
+                    ],
+                }
+            )
+            messages.append(
+                {
+                    "role": "tool",
+                    "content": prefetched.result.summary,
+                    "tool_name": prefetched.tool,
+                }
+            )
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Answer my question using the information above, in one or two "
+                        "spoken sentences. If it isn't there, say you couldn't find it. "
+                        "Do not call any more tools."
+                    ),
+                }
+            )
         model = await self._model_manager.ensure_llm()
         # Prune tool catalog per request to stay within context budget. The full
         # 36-tool catalog is ~4.2K tokens, which overflows the default 4K context

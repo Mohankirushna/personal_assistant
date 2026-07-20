@@ -271,6 +271,106 @@ class BraveSearchOpenFirstTool(Tool):
         )
 
 
+class WebAnswerArgs(BaseModel):
+    query: str = Field(description="The question or topic to look up on the web.")
+
+
+class WebAnswerTool(Tool):
+    """Search the web and return readable text (top page + result snippets)
+    so the planner can answer a factual question in its own words.
+
+    This is the read-and-answer counterpart to brave_search_open_first, which
+    only opens a page. Doing the search + fetch in one deterministic tool call
+    (rather than making the small model chain search -> open -> read itself)
+    is what makes answering reliable on a 3B model.
+    """
+
+    name: ClassVar[str] = "web_answer"
+    description: ClassVar[str] = (
+        "Search the web, read the top result, and return its text so you can ANSWER the "
+        "user's factual question in your own words — prices, facts, definitions, current "
+        "events, and who/what/when/where/how questions. Returns text to read aloud, not a "
+        "page to open; use brave_search_open_first instead when the user asks to open or "
+        "visit a page."
+    )
+    args_model: ClassVar[type[BaseModel]] = WebAnswerArgs
+    risk_level: ClassVar[RiskLevel] = RiskLevel.SAFE
+
+    _MAX_PAGE_CHARS = 2000
+    _MAX_SNIPPET_CHARS = 1200
+
+    @staticmethod
+    def _ddgs_results(query: str) -> list[dict[str, str]]:
+        from ddgs import DDGS
+
+        return list(DDGS().text(query, max_results=5))
+
+    @staticmethod
+    def _html_to_text(page: str) -> str:
+        # Drop non-content elements, strip remaining tags, decode entities,
+        # and collapse whitespace into a compact block the 3B model can read.
+        page = re.sub(
+            r"(?is)<(script|style|head|nav|footer|header|noscript)[^>]*>.*?</\1>", " ", page
+        )
+        page = re.sub(r"(?s)<[^>]+>", " ", page)
+        return re.sub(r"\s+", " ", html.unescape(page)).strip()
+
+    @classmethod
+    async def _fetch_page_text(cls, url: str) -> str | None:
+        output = await run_command([
+            "/usr/bin/curl", "-s", "-L", "--fail", "--max-time", "12",
+            "-A", BraveSearchOpenFirstTool._BROWSER_USER_AGENT,
+            "-H", "Accept-Language: en-US,en;q=0.9",
+            url,
+        ])
+        if not output.ok or not output.stdout.strip():
+            return None
+        return cls._html_to_text(output.stdout) or None
+
+    async def run(self, args: WebAnswerArgs) -> ToolResult:  # type: ignore[override]
+        try:
+            results = await asyncio.to_thread(self._ddgs_results, args.query)
+        except Exception as exc:  # noqa: BLE001 - network errors need a clear reply
+            return ToolResult.failure(self.name, f"could not search the web: {exc}")
+        if not results:
+            return ToolResult.failure(self.name, f"no web results for {args.query!r}.")
+
+        snippets = [
+            f"- {(r.get('title') or '').strip()}: {(r.get('body') or '').strip()}"
+            for r in results[:5]
+            if (r.get("body") or "").strip()
+        ]
+        snippet_block = "\n".join(snippets)[: self._MAX_SNIPPET_CHARS]
+        top_url = results[0].get("href", "")
+
+        # Lead with the search-result snippets: they are concise and answer-
+        # oriented, which a 3B model reads more reliably than a full page's
+        # navigation/markup noise. The page text follows as supporting detail.
+        parts: list[str] = []
+        if snippet_block:
+            parts.append(f"Search results:\n{snippet_block}")
+        page_text = await self._fetch_page_text(top_url) if top_url else None
+        if page_text:
+            parts.append(f"From the top result ({top_url}):\n{page_text[: self._MAX_PAGE_CHARS]}")
+        content = "\n\n".join(parts)
+        if not content:
+            return ToolResult.failure(
+                self.name, f"found results for {args.query!r} but no readable text."
+            )
+        return ToolResult(
+            tool=self.name,
+            ok=True,
+            summary=content,
+            data={
+                "query": args.query,
+                "url": top_url,
+                "results": [
+                    {"title": r.get("title", ""), "url": r.get("href", "")} for r in results
+                ],
+            },
+        )
+
+
 class YouTubePlayArgs(BaseModel):
     query: str = Field(description="Song, artist, or video to find and play on YouTube.")
     browser: str | None = Field(

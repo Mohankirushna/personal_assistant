@@ -38,7 +38,8 @@ def test_discovery_finds_the_whole_suite() -> None:
         "finder_delete", "finder_compress", "finder_extract",
         "terminal_run", "git", "vscode_open",
         "clipboard_read", "clipboard_write",
-        "open_app", "open_url", "browser_search", "brave_search_open_first", "quit_app",
+        "open_app", "open_url", "browser_search", "brave_search_open_first", "web_answer",
+        "quit_app",
         "list_running_apps", "volume",
         "screenshot",
         "battery_status",
@@ -174,6 +175,75 @@ async def test_rate_limited_search_opens_the_search_not_the_block_pages_first_li
     assert result.ok, result.summary
     assert "didn't load directly" in result.summary
     assert opened == ["https://search.brave.com/search?q=price+of+iphone+15"]
+
+
+def test_web_answer_strips_html_to_readable_text() -> None:
+    from app.tools.system.system import WebAnswerTool
+
+    html_page = (
+        "<html><head><title>x</title><style>.a{}</style></head>"
+        "<body><script>bad()</script><h1>iPhone 15</h1>"
+        "<p>The iPhone 15 starts at &pound;799.</p></body></html>"
+    )
+    text = WebAnswerTool._html_to_text(html_page)
+    assert "iPhone 15 starts at £799." in text
+    assert "bad()" not in text and ".a{}" not in text  # script/style dropped
+
+
+async def test_web_answer_returns_page_text_and_snippets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.tools.system.system import WebAnswerTool
+
+    monkeypatch.setattr(
+        WebAnswerTool, "_ddgs_results",
+        staticmethod(lambda query: [
+            {"title": "Apple", "href": "https://apple.com/iphone-15",
+             "body": "iPhone 15 from $799."},
+            {"title": "Wiki", "href": "https://en.wikipedia.org/iphone", "body": "A phone."},
+        ]),
+    )
+
+    async def fake_run_command(argv: list[str], cwd=None, timeout=30.0) -> CommandOutput:
+        assert argv[0] == "/usr/bin/curl"
+        return CommandOutput(0, "<p>iPhone 15 costs $799 in the US.</p>", "")
+
+    monkeypatch.setattr(system_module, "run_command", fake_run_command)
+    result = await WebAnswerTool().execute({"query": "iphone 15 price"})
+    assert result.ok, result.summary
+    assert "iPhone 15 costs $799" in result.summary  # top page text
+    assert "from $799" in result.summary  # snippet
+    assert result.data["url"] == "https://apple.com/iphone-15"
+
+
+async def test_web_answer_falls_back_to_snippets_when_page_fetch_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.tools.system.system import WebAnswerTool
+
+    monkeypatch.setattr(
+        WebAnswerTool, "_ddgs_results",
+        staticmethod(lambda query: [
+            {"title": "Result", "href": "https://x.com", "body": "The answer is 42."},
+        ]),
+    )
+
+    async def fake_run_command(argv: list[str], cwd=None, timeout=30.0) -> CommandOutput:
+        return CommandOutput(22, "", "curl: (22) 429")  # page blocked
+
+    monkeypatch.setattr(system_module, "run_command", fake_run_command)
+    result = await WebAnswerTool().execute({"query": "meaning of life"})
+    assert result.ok, result.summary
+    assert "The answer is 42." in result.summary
+
+
+async def test_web_answer_no_results_fails_clearly(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.tools.system.system import WebAnswerTool
+
+    monkeypatch.setattr(WebAnswerTool, "_ddgs_results", staticmethod(lambda query: []))
+    result = await WebAnswerTool().execute({"query": "asdfqwerzxcv"})
+    assert not result.ok
+    assert "no web results" in result.summary
 
 
 async def test_spotify_play_resolves_a_track_and_plays_it_directly(

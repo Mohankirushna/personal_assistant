@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # "send that/this to <name>" — deliberately just the info/browse tools,
 # not actions like opening apps or controlling media.
 _SHAREABLE_CONTENT_TOOLS = {
-    "brave_search_open_first", "browser_search", "news_search", "youtube_play",
+    "brave_search_open_first", "browser_search", "news_search", "youtube_play", "web_answer",
 }
 
 

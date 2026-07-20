@@ -107,11 +107,25 @@ def test_general_search_opens_the_first_brave_result(utterance: str) -> None:
         "Show me cricket results",
     ],
 )
-def test_live_information_questions_search_brave(utterance: str) -> None:
+def test_live_information_questions_read_and_answer(utterance: str) -> None:
+    # A bare question should read the web and answer, not just open a page.
     call = match_fast_intent(utterance)
     assert call is not None
-    assert call.name == "brave_search_open_first"
+    assert call.name == "web_answer"
     assert call.arguments == {"query": utterance.lower().rstrip("?")}
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected_tool"),
+    [
+        ("what is the price of iphone 15 in chrome", "browser_search"),
+        ("what is the price of iphone 15 in brave", "brave_search_open_first"),
+    ],
+)
+def test_question_with_explicit_browser_opens_a_page(utterance: str, expected_tool: str) -> None:
+    call = match_fast_intent(utterance)
+    assert call is not None
+    assert call.name == expected_tool
 
 
 def test_ordinary_conversation_does_not_trigger_web_search() -> None:
@@ -207,10 +221,10 @@ def test_sports_result_with_brave_still_opens_the_first_result() -> None:
     "utterance",
     ["Who is Ironman?", "What is the capital of France?", "Where is the Eiffel Tower?"],
 )
-def test_general_knowledge_questions_search_the_web(utterance: str) -> None:
+def test_general_knowledge_questions_read_and_answer(utterance: str) -> None:
     call = match_fast_intent(utterance)
     assert call is not None
-    assert call.name == "brave_search_open_first"
+    assert call.name == "web_answer"
     assert call.arguments == {"query": utterance.lower().rstrip("?")}
 
 

@@ -485,13 +485,15 @@ def match_fast_intent(utterance: str) -> ToolCallRequest | None:
         or _GENERAL_KNOWLEDGE_QUESTION.fullmatch(normalized)
     ):
         query, browser = _split_trailing_browser(normalized)
-        if browser and browser != "brave":
-            return ToolCallRequest(
-                name="browser_search",
-                arguments={"query": query, "engine": "google", "browser": _BROWSER_NAMES[browser]},
-            )
+        # An explicit browser ("...in chrome") means open a page there; a bare
+        # question means the user wants an answer, so read the web and reply.
+        if browser is None:
+            return ToolCallRequest(name="web_answer", arguments={"query": query})
+        if browser == "brave":
+            return ToolCallRequest(name="brave_search_open_first", arguments={"query": query})
         return ToolCallRequest(
-            name="brave_search_open_first", arguments={"query": query}
+            name="browser_search",
+            arguments={"query": query, "engine": "google", "browser": _BROWSER_NAMES[browser]},
         )
     music_request = _MUSIC_REQUEST.fullmatch(normalized)
     if music_request:
