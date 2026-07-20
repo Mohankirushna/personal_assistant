@@ -515,18 +515,23 @@ def test_focus_mode_commands_use_focus_mode_tool(
 
 
 @pytest.mark.parametrize(
-    "utterance",
+    ("utterance", "day"),
     [
-        "show my calendar",
-        "check my calendar",
-        "what's my calendar",
-        "list my events",
-        "view my meetings",
-        "see my calendar for today",
+        ("show my calendar", "today"),
+        ("check my calendar", "today"),
+        ("what's my calendar", "today"),
+        ("list my events", "today"),
+        ("view my meetings", "today"),
+        ("see my calendar for today", "today"),
+        ("show my calendar for tomorrow", "tomorrow"),
+        # Leaked to web search live: "for" must be optional before the day.
+        ("whats my calendar today", "today"),
+        ("check my calendar tomorrow", "tomorrow"),
+        ("what's my next meeting", "today"),
     ],
 )
-def test_calendar_commands_use_calendar_tool(utterance: str) -> None:
+def test_calendar_commands_use_calendar_tool(utterance: str, day: str) -> None:
     call = match_fast_intent(utterance)
     assert call is not None, f"{utterance!r} should match"
     assert call.name == "calendar"
-    assert call.arguments == {"query": "today"}
+    assert call.arguments == {"day": day}

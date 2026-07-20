@@ -242,10 +242,14 @@ _FOCUS_MODE_OFF = re.compile(
 _FOCUS_MODE_TOGGLE = re.compile(
     r"^(?:toggle|switch) (?:do not disturb|focus mode|dnd)$"
 )
-# Calendar: "show my calendar", "what's my calendar", "check my events", etc.
+# Calendar: "show my calendar", "whats my calendar today", "next meeting"...
+# "for" must be optional: "whats my calendar today" otherwise falls through
+# to the live-info pattern (starts with "whats", contains "today") and gets
+# web-searched — observed live.
 _CALENDAR = re.compile(
     r"^(?:show|check|what'?s|list|view|see) (?:my |the )?(?:calendar|events|meetings)"
-    r"(?: for (?P<when>today|tomorrow|this week))?$"
+    r"(?: (?:for )?(?P<when>today|tomorrow|this week))?$"
+    r"|^(?:what'?s|show|check) (?:my |the )?next meeting$"
 )
 _SYSTEM_POWER = re.compile(
     r"^(?P<action>restart|reboot|shut down|shutdown|power off|turn off)"
@@ -332,8 +336,11 @@ def match_fast_intent(utterance: str) -> ToolCallRequest | None:
         return ToolCallRequest(name="focus_mode", arguments={"action": "off"})
     if _FOCUS_MODE_TOGGLE.fullmatch(normalized):
         return ToolCallRequest(name="focus_mode", arguments={"action": "toggle"})
-    if _CALENDAR.fullmatch(normalized):
-        return ToolCallRequest(name="calendar", arguments={"query": "today"})
+    calendar_match = _CALENDAR.fullmatch(normalized)
+    if calendar_match:
+        when = calendar_match.group("when")
+        day = "tomorrow" if when == "tomorrow" else "today"
+        return ToolCallRequest(name="calendar", arguments={"day": day})
     volume_mute = _VOLUME_MUTE.fullmatch(normalized)
     if volume_mute:
         return ToolCallRequest(

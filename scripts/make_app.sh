@@ -46,6 +46,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <string>Jarvis listens for the wake word and voice commands.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Jarvis controls applications (open, close, windows, media) on your behalf.</string>
+    <!-- Calendar reads (EventKit): without this key macOS auto-denies the
+         backend's access request without ever showing a prompt. -->
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Jarvis reads your calendar to answer questions about today's events and meetings.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Jarvis reads your calendar to answer questions about today's events and meetings.</string>
 </dict>
 </plist>
 PLIST

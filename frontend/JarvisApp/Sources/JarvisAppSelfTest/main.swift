@@ -114,6 +114,12 @@ expect(
     ToolActivity.phrase(forTool: "my_custom_plugin") == "Running my custom plugin",
     "unknown tool falls back to a readable name")
 expect(ToolActivity.phrase(forTool: "") == "Working on it", "empty tool name is handled")
+expect(
+    ToolActivity.phrase(forTool: "timer") == "Setting the timer",
+    "timer has a dedicated phrase")
+expect(
+    ToolActivity.phrase(forTool: "calendar") == "Checking your calendar",
+    "calendar has a dedicated phrase")
 
 // MARK: Stale-backend detection
 let staleError = BackendProcessManager.SpawnError.staleBackendOnPort(8765)

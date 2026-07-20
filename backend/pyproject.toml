@@ -42,6 +42,9 @@ macos = [
     "pyobjc-framework-Quartz>=10.3 ; sys_platform == 'darwin'",
     "pyobjc-framework-ApplicationServices>=10.3 ; sys_platform == 'darwin'",
     "pyobjc-framework-Cocoa>=10.3 ; sys_platform == 'darwin'",
+    # Calendar reads use EventKit: AppleScript 'whose' queries against the
+    # Calendar app time out on real calendars (>25s); EventKit answers in ms.
+    "pyobjc-framework-EventKit>=10.3 ; sys_platform == 'darwin'",
 ]
 dev = [
     "pytest>=8.3",
@@ -90,5 +93,13 @@ filterwarnings = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["faster_whisper.*", "openwakeword.*", "piper.*", "sounddevice.*", "websockets.*"]
+module = [
+    "faster_whisper.*",
+    "openwakeword.*",
+    "piper.*",
+    "sounddevice.*",
+    "websockets.*",
+    "EventKit",
+    "Foundation",
+]
 ignore_missing_imports = true

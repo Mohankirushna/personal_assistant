@@ -27,7 +27,7 @@ jobs:
         # 3.11): without it uv picks the runner's newest Python, where the
         # lockfile resolves a numpy whose PEP 695 stubs mypy-as-3.11 cannot
         # parse. Local dev pins 3.11 too, via the gitignored .python-version.
-        run: uv sync --python 3.11 --extra dev --extra voice --extra memory --extra browser
+        run: uv sync --python 3.11 --extra dev --extra voice --extra memory --extra browser --extra macos
       - name: Toolchain
         run: uv run python --version
 

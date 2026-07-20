@@ -1,15 +1,61 @@
-"""Focus mode / Do Not Disturb control: toggle via macOS defaults."""
+"""Focus mode / Do Not Disturb: toggle via Control Center UI scripting.
+
+Why not `defaults write ...controlcenter DoNotDisturb`: since macOS 12 the
+real Focus state lives with `donotdisturbd` (TCC-protected), and writing that
+legacy plist key succeeds while changing nothing — the tool would then claim
+"Do Not Disturb enabled" for a no-op. There is no public CLI for Focus, so
+this clicks the Focus toggle in Control Center and — crucially — reads the
+toggle's value back afterwards: the summary reports the state the UI
+actually shows, never an assumption.
+
+Requires Accessibility permission for Jarvis (System Settings > Privacy &
+Security > Accessibility); without it the AppleScript errors and the tool
+fails honestly with instructions.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import subprocess
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
 from app.planner.schemas import RiskLevel, ToolResult
 from app.tools.base import Tool
+
+_ACCESSIBILITY_HELP = (
+    "I can't reach Control Center: Jarvis needs Accessibility permission "
+    "(System Settings > Privacy & Security > Accessibility)."
+)
+
+# Opens Control Center, finds the Focus toggle, applies the desired state,
+# and returns "before,after" checkbox values so Python can verify the click
+# actually changed something.
+_FOCUS_SCRIPT = """
+on run argv
+    set desired to item 1 of argv
+    tell application "System Events"
+        tell process "ControlCenter"
+            click (first menu bar item of menu bar 1 whose name contains "Control Center")
+            delay 0.7
+            set focusToggle to (first checkbox of window 1 whose name contains "Focus")
+            set beforeVal to value of focusToggle as integer
+            set needsClick to (desired = "toggle")
+            if desired = "on" and beforeVal = 0 then set needsClick to true
+            if desired = "off" and beforeVal = 1 then set needsClick to true
+            if needsClick then
+                click focusToggle
+                delay 0.5
+                set afterVal to value of focusToggle as integer
+            else
+                set afterVal to beforeVal
+            end if
+            key code 53 -- Esc: close Control Center
+            return (beforeVal as text) & "," & (afterVal as text)
+        end tell
+    end tell
+end run
+"""
 
 
 class FocusModeArgs(BaseModel):
@@ -22,61 +68,55 @@ class FocusModeArgs(BaseModel):
 class FocusModeTool(Tool):
     name: ClassVar[str] = "focus_mode"
     description: ClassVar[str] = (
-        "Enable, disable, or toggle Do Not Disturb / Focus Mode on this Mac. "
-        "Use 'on' to enable, 'off' to disable, or 'toggle' to switch."
+        "Enable, disable, or toggle Do Not Disturb / Focus on this Mac via "
+        "Control Center."
     )
     args_model: ClassVar[type[BaseModel]] = FocusModeArgs
     risk_level: ClassVar[RiskLevel] = RiskLevel.SAFE
 
     async def run(self, args: FocusModeArgs) -> ToolResult:  # type: ignore[override]
-        action = args.action
-        plist = "~/Library/Preferences/ByHost/com.apple.controlcenter.plist"
-        # Use `defaults` command to toggle Focus Mode
-        if action == "on":
-            script_actual = rf"""
-defaults write {plist} DoNotDisturb -bool true
-killall -u $(whoami) "Control Center" 2>/dev/null || true
-"""
-        elif action == "off":
-            script_actual = rf"""
-defaults write {plist} DoNotDisturb -bool false
-killall -u $(whoami) "Control Center" 2>/dev/null || true
-"""
-        else:  # toggle
-            script_actual = rf"""
-CURRENT=$(defaults read {plist} DoNotDisturb 2>/dev/null || echo "0")
-if [ "$CURRENT" == "1" ]; then
-  defaults write {plist} DoNotDisturb -bool false
-else
-  defaults write {plist} DoNotDisturb -bool true
-fi
-killall -u $(whoami) "Control Center" 2>/dev/null || true
-"""
-
         try:
-            await asyncio.to_thread(
-                subprocess.run,
-                ["bash", "-c", script_actual],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=5,
+            proc = await asyncio.create_subprocess_exec(
+                "osascript",
+                "-e",
+                _FOCUS_SCRIPT,
+                args.action,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            action_label = (
-                "enabled" if action == "on"
-                else "disabled" if action == "off"
-                else "toggled"
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+        except TimeoutError:
+            return ToolResult.failure(self.name, "Control Center did not respond.")
+        except OSError as exc:
+            return ToolResult.failure(self.name, f"Could not run osascript: {exc}")
+
+        if proc.returncode != 0:
+            error = stderr.decode().strip()
+            if "assistive access" in error or "-1719" in error:
+                return ToolResult.failure(self.name, _ACCESSIBILITY_HELP)
+            return ToolResult.failure(
+                self.name, f"Focus toggle failed: {error or 'unknown UI error'}"
             )
-            return ToolResult(
-                tool=self.name,
-                ok=True,
-                summary=f"Do Not Disturb is now {action_label}.",
-                data={"action": action},
+
+        before, _, after = stdout.decode().strip().partition(",")
+        if after not in ("0", "1"):
+            return ToolResult.failure(
+                self.name, "Couldn't read the Focus state back from Control Center."
             )
-        except subprocess.TimeoutExpired:
-            return ToolResult.failure(self.name, "Focus mode toggle timed out.")
-        except subprocess.CalledProcessError as e:
+        wanted_change = args.action == "toggle" or (args.action == "on") != (
+            before == "1"
+        )
+        if wanted_change and before == after:
             return ToolResult.failure(
                 self.name,
-                f"Failed to toggle focus mode: {e.stderr or e.stdout or 'unknown error'}",
+                "Clicking the Focus toggle didn't change its state — "
+                "Do Not Disturb is unchanged.",
             )
+        state = "on" if after == "1" else "off"
+        already = " (it already was)" if before == after else ""
+        return ToolResult(
+            tool=self.name,
+            ok=True,
+            summary=f"Do Not Disturb is now {state}{already}.",
+            data={"action": args.action, "state": state},
+        )
