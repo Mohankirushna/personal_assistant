@@ -471,3 +471,62 @@ def test_matches_brightness_adjust_commands(utterance: str, arguments: dict[str,
 )
 def test_does_not_match_ambiguous_or_specific(utterance: str) -> None:
     assert match_fast_intent(utterance) is None, f"{utterance!r} should NOT match"
+
+
+@pytest.mark.parametrize(
+    ("utterance", "minutes", "label"),
+    [
+        ("set a timer for 10 minutes", 10, ""),
+        ("10 minute timer", 10, ""),
+        ("5-minute timer", 5, ""),
+        ("set a 15 minute timer for laundry", 15, "laundry"),
+        ("timer for 3 minutes labeled cooking", 3, "cooking"),
+    ],
+)
+def test_timer_commands_use_timer_tool(
+    utterance: str, minutes: int, label: str
+) -> None:
+    call = match_fast_intent(utterance)
+    assert call is not None, f"{utterance!r} should match"
+    assert call.name == "timer"
+    expected_args = {"minutes": minutes}
+    if label:
+        expected_args["label"] = label
+    assert call.arguments == expected_args
+
+
+@pytest.mark.parametrize(
+    ("utterance", "action"),
+    [
+        ("turn on do not disturb", "on"),
+        ("enable focus mode", "on"),
+        ("turn off focus mode", "off"),
+        ("disable do not disturb", "off"),
+        ("toggle focus mode", "toggle"),
+    ],
+)
+def test_focus_mode_commands_use_focus_mode_tool(
+    utterance: str, action: str
+) -> None:
+    call = match_fast_intent(utterance)
+    assert call is not None, f"{utterance!r} should match"
+    assert call.name == "focus_mode"
+    assert call.arguments == {"action": action}
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "show my calendar",
+        "check my calendar",
+        "what's my calendar",
+        "list my events",
+        "view my meetings",
+        "see my calendar for today",
+    ],
+)
+def test_calendar_commands_use_calendar_tool(utterance: str) -> None:
+    call = match_fast_intent(utterance)
+    assert call is not None, f"{utterance!r} should match"
+    assert call.name == "calendar"
+    assert call.arguments == {"query": "today"}

@@ -195,6 +195,58 @@ _KNOWN_FOLDERS = {
     "pictures": "~/Pictures",
     "movies": "~/Movies",
 }
+# Timer: match "set a timer for 10 minutes", "10 minute timer", etc.
+# Flexible to handle various orderings and formats.
+def _match_timer(normalized: str) -> tuple[int, str] | None:
+    """Parse timer commands; return (minutes, label) or None."""
+    # Extract the number first (most reliable anchor)
+    num_match = re.search(r"(\d{1,2})", normalized)
+    if not num_match:
+        return None
+    minutes = int(num_match.group(1))
+    if minutes < 1 or minutes > 60:
+        return None
+
+    # Check that "timer" and a time unit ("minute" or "min") are present.
+    # Don't use \b because normalization may have removed hyphens (5-minute -> 5minute)
+    if "timer" not in normalized or "minute" not in normalized and "min" not in normalized:
+        return None
+
+    # Extract optional label.
+    # First try "labeled X" or "called X" (most explicit).
+    label = ""
+    for prefix in ["labeled", "called"]:
+        m = re.search(rf"{prefix}\s+(.+?)$", normalized)
+        if m:
+            label = m.group(1).strip()
+            break
+
+    # If no explicit prefix, try "for X" but only if it appears AFTER the time
+    # unit, to avoid matching "timer for 10 minutes" as having a label.
+    if not label:
+        after_time = re.search(
+            r"(?:minute|min)(?:ute)?s?[\w\s]*(?:for|labeled|called)\s+(.+?)$",
+            normalized,
+        )
+        if after_time:
+            label = after_time.group(1).strip()
+
+    return minutes, label
+# Focus mode: "turn on/off do not disturb", "enable/disable focus mode", etc.
+_FOCUS_MODE_ON = re.compile(
+    r"^(?:turn on|enable|activate|start) (?:do not disturb|focus mode|dnd)$"
+)
+_FOCUS_MODE_OFF = re.compile(
+    r"^(?:turn off|disable|deactivate|stop) (?:do not disturb|focus mode|dnd)$"
+)
+_FOCUS_MODE_TOGGLE = re.compile(
+    r"^(?:toggle|switch) (?:do not disturb|focus mode|dnd)$"
+)
+# Calendar: "show my calendar", "what's my calendar", "check my events", etc.
+_CALENDAR = re.compile(
+    r"^(?:show|check|what'?s|list|view|see) (?:my |the )?(?:calendar|events|meetings)"
+    r"(?: for (?P<when>today|tomorrow|this week))?$"
+)
 _SYSTEM_POWER = re.compile(
     r"^(?P<action>restart|reboot|shut down|shutdown|power off|turn off)"
     r"(?: (?:my )?(?:laptop|macbook|mac|computer))?$"
@@ -267,6 +319,21 @@ def match_fast_intent(utterance: str) -> ToolCallRequest | None:
             name="finder_list",
             arguments={"path": _KNOWN_FOLDERS[folder_name.group("folder")]},
         )
+    timer_result = _match_timer(normalized)
+    if timer_result:
+        minutes, label = timer_result
+        args: dict[str, object] = {"minutes": minutes}
+        if label:
+            args["label"] = label
+        return ToolCallRequest(name="timer", arguments=args)
+    if _FOCUS_MODE_ON.fullmatch(normalized):
+        return ToolCallRequest(name="focus_mode", arguments={"action": "on"})
+    if _FOCUS_MODE_OFF.fullmatch(normalized):
+        return ToolCallRequest(name="focus_mode", arguments={"action": "off"})
+    if _FOCUS_MODE_TOGGLE.fullmatch(normalized):
+        return ToolCallRequest(name="focus_mode", arguments={"action": "toggle"})
+    if _CALENDAR.fullmatch(normalized):
+        return ToolCallRequest(name="calendar", arguments={"query": "today"})
     volume_mute = _VOLUME_MUTE.fullmatch(normalized)
     if volume_mute:
         return ToolCallRequest(
@@ -290,7 +357,7 @@ def match_fast_intent(utterance: str) -> ToolCallRequest | None:
             or volume_adjust.group("dir3")
         )
         direction = "up" if raw_dir in {"up", "increase", "raise"} else "down"
-        args: dict[str, object] = {"direction": direction}
+        args: dict[str, object] = {"direction": direction}  # type: ignore[no-redef]
         if amount := volume_adjust.group("amount"):
             args["amount"] = int(amount)
         return ToolCallRequest(name="volume", arguments=args)
