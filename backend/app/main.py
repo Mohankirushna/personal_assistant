@@ -27,7 +27,7 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI
 
-from app.api import chat, health, tools
+from app.api import briefing, chat, health, tools
 from app.core.auth import TokenAuthMiddleware
 from app.core.chat_service import ChatService
 from app.core.config import Settings, get_settings
@@ -228,6 +228,7 @@ def create_app(
     app.include_router(health.router)
     app.include_router(chat.router)
     app.include_router(tools.router)
+    app.include_router(briefing.router)
     if voice_enabled:
         from app.api import voice
 

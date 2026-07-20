@@ -9,6 +9,7 @@ struct JarvisApp: App {
     // must not live in the view tree — kick it off with the state object.
     @StateObject private var appState: AppState = {
         let state = AppState()
+        state.observeWakeForBriefing()
         Task { await state.start() }
         return state
     }()

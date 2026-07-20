@@ -58,6 +58,21 @@ public struct BackendClient {
         return try JSONDecoder().decode(ChatResponse.self, from: data)
     }
 
+    /// Ask the backend to speak the morning briefing aloud, if audio is
+    /// audible (it decides). Returns whether it spoke. Best-effort: a failure
+    /// to reach the backend is swallowed by the caller.
+    @discardableResult
+    public func announceBriefing() async throws -> Bool {
+        var request = authorizedRequest(path: "briefing/announce")
+        request.httpMethod = "POST"
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            throw BackendError.http(status: http.statusCode, body: String(decoding: data, as: UTF8.self))
+        }
+        struct AnnounceResponse: Decodable { let spoken: Bool }
+        return (try? JSONDecoder().decode(AnnounceResponse.self, from: data))?.spoken ?? false
+    }
+
     /// Open /ws/chat, send one message, and stream events until "done"/"error".
     public func streamChat(
         message: String,

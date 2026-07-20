@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import JarvisAppKit
 import SwiftUI
@@ -33,8 +34,27 @@ final class AppState: ObservableObject {
     private var reconnectTask: Task<Void, Never>?
     private var healthMonitorTask: Task<Void, Never>?
     private var isStartingBackend = false
+    private var wakeObserver: NSObjectProtocol?
     private enum ConfirmationSource { case chat, voice }
     private var confirmationSource: ConfirmationSource?
+
+    /// Speak the morning briefing whenever the Mac wakes from sleep (lid
+    /// opened, etc.). The backend decides whether audio is audible before
+    /// speaking, so this just nudges it on every wake.
+    func observeWakeForBriefing() {
+        guard wakeObserver == nil else { return }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let client = self.client else { return }
+                // Best-effort: never surface a wake-time network hiccup.
+                _ = try? await client.announceBriefing()
+            }
+        }
+    }
 
     func start() async {
         // A health check and an automatic retry can arrive at the same time.
@@ -269,6 +289,9 @@ final class AppState: ObservableObject {
         voiceOverlayHideTask?.cancel()
         reconnectTask?.cancel()
         healthMonitorTask?.cancel()
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
         voiceOverlay.hide()
         processManager.stop()
     }
