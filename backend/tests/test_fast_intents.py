@@ -381,7 +381,8 @@ def test_matches_recent_news_commands(utterance: str, arguments: dict[str, objec
 
 @pytest.mark.parametrize(
     "utterance",
-    ["check my email", "check my inbox", "any new emails", "read my mail", "check email"],
+    # "check my email" = quick count/list; "read my mail" now summarizes.
+    ["check my email", "check my inbox", "any new emails", "check email"],
 )
 def test_matches_check_email_commands(utterance: str) -> None:
     call = match_fast_intent(utterance)
@@ -408,7 +409,10 @@ def test_matches_send_email_commands(utterance: str, recipient: str, body: str) 
 @pytest.mark.parametrize(
     "utterance",
     ["summarize my emails", "summarize my unread emails", "summarize my inbox",
-     "what are my unread emails about", "sum up my mail"],
+     "what are my unread emails about", "sum up my mail",
+     # General "recent mails" phrasings — must reach mail, not web search.
+     "what are the recent mails", "recent emails", "show me my emails",
+     "whats in my inbox", "do i have new mail", "list my latest emails"],
 )
 def test_matches_summarize_inbox(utterance: str) -> None:
     call = match_fast_intent(utterance)

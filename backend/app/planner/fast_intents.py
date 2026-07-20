@@ -102,6 +102,17 @@ _SUMMARIZE_INBOX = re.compile(
     r"(?: (?:about|regarding))?$"
     r"|^what(?:'s| are)? my (?:unread )?(?:emails?|mail) about$"
 )
+# General "what are the recent mails" / "show me my emails" / "what's in my
+# inbox" — summarize the newest unread mail (no sender/topic filter).
+# Note: normalization strips apostrophes, so "what's" arrives as "whats" —
+# match the bare "s", not "'s".
+_RECENT_MAILS = re.compile(
+    r"^(?:what(?:s| is| are)?|show me|list|read|give me|tell me about|do i have)\s+"
+    r"(?:the |my |any )?(?:recent|latest|new|unread|newest|last)?\s*"
+    r"(?:e-?mails?|mails?|messages?|inbox)$"
+    r"|^(?:recent|latest|new|unread|newest)\s+(?:e-?mails?|mails?)$"
+    r"|^what(?:s| is)? in my (?:inbox|mail|mailbox)$"
+)
 _CHECK_EMAIL_FROM = re.compile(
     r"^(?:any|do i have(?: any)?|is there(?: any)?|check(?: for)?) "
     r"(?:new |unread )?(?:emails?|mail) from (?P<sender>.+)$"
@@ -536,7 +547,7 @@ def match_fast_intent(utterance: str) -> ToolCallRequest | None:
                     "message": whatsapp_send.group("message"),
                 },
             )
-    if _SUMMARIZE_INBOX.fullmatch(normalized):
+    if _SUMMARIZE_INBOX.fullmatch(normalized) or _RECENT_MAILS.fullmatch(normalized):
         return ToolCallRequest(name="summarize_inbox", arguments={})
     check_from = _CHECK_EMAIL_FROM.fullmatch(address_friendly)
     if check_from:
