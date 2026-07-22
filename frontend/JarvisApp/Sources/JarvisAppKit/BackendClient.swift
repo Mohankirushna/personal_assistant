@@ -73,6 +73,20 @@ public struct BackendClient {
         return (try? JSONDecoder().decode(AnnounceResponse.self, from: data))?.spoken ?? false
     }
 
+    /// Report the device's current city to the backend, for accurate local
+    /// weather in the morning briefing. The backend subprocess can't obtain
+    /// location itself (no app-bundle identity), so the app pushes it here.
+    public func updateLocation(city: String) async throws {
+        var request = authorizedRequest(path: "location")
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["city": city])
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            throw BackendError.http(status: http.statusCode, body: String(decoding: data, as: UTF8.self))
+        }
+    }
+
     /// Open /ws/chat, send one message, and stream events until "done"/"error".
     public func streamChat(
         message: String,

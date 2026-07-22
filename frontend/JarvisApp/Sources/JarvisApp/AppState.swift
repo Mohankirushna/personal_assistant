@@ -27,6 +27,7 @@ final class AppState: ObservableObject {
 
     private let processManager = BackendProcessManager()
     private var client: BackendClient?
+    private lazy var locationProvider = LocationProvider { [weak self] in self?.client }
     private var sessionId: String?
     private var voiceAssistant: VoiceAssistant?
     private let voiceOverlay = VoiceOverlayController()
@@ -50,7 +51,10 @@ final class AppState: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, let client = self.client else { return }
-                // Best-effort: never surface a wake-time network hiccup.
+                // Refresh the location so the briefing's weather matches where
+                // the Mac woke up, then announce. Best-effort throughout:
+                // never surface a wake-time network/location hiccup.
+                self.locationProvider.requestLocation()
                 _ = try? await client.announceBriefing()
             }
         }
@@ -72,6 +76,9 @@ final class AppState: ObservableObject {
             if status.isOnline {
                 startVoice(with: client)
                 startHealthMonitoring()
+                // Report current location once connected, so the first
+                // briefing already has accurate local weather.
+                locationProvider.requestLocation()
             }
         } catch {
             status = .offline(error.localizedDescription)

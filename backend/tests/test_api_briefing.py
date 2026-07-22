@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from app.api import briefing as briefing_api
+from app.core import location_state
 from app.planner.schemas import ToolResult
 from app.tools._common import CommandOutput
 
@@ -71,6 +72,16 @@ async def test_announce_speaks_the_briefing_when_audible(
     assert result.spoken is True
     assert result.reason == "ok"
     assert spoke == ["Good morning. Sunny 30C."]
+
+
+async def test_location_endpoint_updates_the_reported_city() -> None:
+    location_state._reset_for_tests()
+    try:
+        result = await briefing_api.update_location(briefing_api.LocationUpdate(city="Chennai"))
+        assert result == {"status": "ok", "city": "Chennai"}
+        assert location_state.get_city() == "Chennai"
+    finally:
+        location_state._reset_for_tests()
 
 
 async def _call_announce(monkeypatch: pytest.MonkeyPatch) -> briefing_api.AnnounceResponse:

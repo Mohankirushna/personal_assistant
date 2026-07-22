@@ -155,41 +155,39 @@ async def test_headline_internal_semicolon_does_not_read_as_two_headlines(
     assert "Parliament adjourned, Kharge raises CJP protest" in result.summary
 
 
-async def test_weather_uses_configured_location_without_calling_corelocation(
+async def test_weather_uses_configured_location_over_reported_city(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An explicit JARVIS_BRIEFING_LOCATION must win outright — Location
-    Services shouldn't even be queried."""
+    """An explicit JARVIS_BRIEFING_LOCATION wins over whatever city the app
+    last reported."""
     _mock_all(monkeypatch, events=[], unread=(0, []), weather="Sunny +31°C", rss="")
+    briefing_module.location_state.set_city("Chennai")
+    try:
+        result = await _tool().execute({})  # _tool() is configured to Vellore
+        assert "weather in Vellore" in result.summary
+    finally:
+        briefing_module.location_state._reset_for_tests()
 
-    async def explode() -> str | None:
-        raise AssertionError("current_city() must not be called when a location is configured")
 
-    monkeypatch.setattr(briefing_module._location, "current_city", explode)
-    result = await _tool().execute({})
-    assert "weather in Vellore" in result.summary
-
-
-async def test_weather_auto_detects_location_when_unconfigured(
+async def test_weather_uses_app_reported_city_when_unconfigured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _mock_all(monkeypatch, events=[], unread=(0, []), weather="Sunny +31°C", rss="")
+    briefing_module.location_state.set_city("Chennai")
+    try:
+        tool = MorningBriefingTool(Settings(briefing_location=None))
+        result = await tool.execute({})
+        assert "weather in Chennai" in result.summary
+    finally:
+        briefing_module.location_state._reset_for_tests()
 
-    async def fake_current_city() -> str | None:
-        return "Chennai"
 
-    monkeypatch.setattr(briefing_module._location, "current_city", fake_current_city)
-    tool = MorningBriefingTool(Settings(briefing_location=None))
-    result = await tool.execute({})
-    assert "weather in Chennai" in result.summary
-
-
-async def test_weather_falls_back_when_location_detection_fails(
+async def test_weather_falls_back_to_ip_when_no_city_reported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Denied permission / no fix / unsupported platform must degrade to the
-    pre-existing behaviour (IP geolocation via a blank wttr.in query), not
-    fail the whole briefing."""
+    """With no configured location and none reported by the app, degrade to
+    the blank wttr.in query (its own IP geolocation), not a failure."""
+    briefing_module.location_state._reset_for_tests()
     calls: list[str] = []
 
     async def fake_run_command(argv, cwd=None, timeout=30.0):  # type: ignore[no-untyped-def]
@@ -204,18 +202,14 @@ async def test_weather_falls_back_when_location_detection_fails(
     async def fake_scan(sender, include_body, limit, unread_only=True, keyword=None):  # type: ignore[no-untyped-def]
         return (0, [])
 
-    async def fake_current_city() -> str | None:
-        return None
-
     monkeypatch.setattr(briefing_module.CalendarTool, "run", fake_calendar_run)
     monkeypatch.setattr(briefing_module.mail_module, "_scan_inbox", fake_scan)
     monkeypatch.setattr(briefing_module, "run_command", fake_run_command)
-    monkeypatch.setattr(briefing_module._location, "current_city", fake_current_city)
 
     tool = MorningBriefingTool(Settings(briefing_location=None))
     result = await tool.execute({})
     assert "weather is Sunny 31°C" in result.summary  # no "in <city>" clause
-    assert calls[0] == "https://wttr.in/?format=%C+%t&m"  # blank location, as before
+    assert calls[0] == "https://wttr.in/?format=%C+%t&m"  # blank location
 
 
 async def test_briefing_dedupes_repeated_email_senders(

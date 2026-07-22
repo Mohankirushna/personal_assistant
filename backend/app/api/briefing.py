@@ -12,8 +12,9 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from app.core import location_state
 from app.tools._common import run_osascript
 from app.tools.briefing import MorningBriefingTool
 
@@ -26,6 +27,19 @@ class AnnounceResponse(BaseModel):
     spoken: bool
     reason: str
     text: str = ""
+
+
+class LocationUpdate(BaseModel):
+    city: str = Field(min_length=1, max_length=100)
+
+
+@router.post("/location")
+async def update_location(payload: LocationUpdate) -> dict[str, str]:
+    """The SwiftUI app reports the device's current city here (it has the
+    app-bundle identity macOS Location Services requires; the backend does
+    not). Used for accurate local weather in the briefing."""
+    location_state.set_city(payload.city)
+    return {"status": "ok", "city": payload.city}
 
 
 async def _audio_is_audible() -> bool:

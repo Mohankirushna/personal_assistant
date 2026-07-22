@@ -19,9 +19,9 @@ from urllib.parse import quote
 
 from pydantic import BaseModel
 
+from app.core import location_state
 from app.core.config import Settings, get_settings
 from app.planner.schemas import RiskLevel, ToolResult
-from app.tools import _location
 from app.tools import mail as mail_module
 from app.tools._common import run_command
 from app.tools.base import Tool
@@ -122,12 +122,14 @@ class MorningBriefingTool(Tool):
         return f"You have {unread} unread {noun}{tail}."
 
     async def _weather_line(self) -> str:
-        # An explicit setting always wins. Otherwise, try the device's real
-        # current location (accurate WiFi-positioning) before falling back to
-        # wttr.in's own IP-based guess, which is often wrong by tens of km.
+        # An explicit setting always wins. Otherwise use the current city the
+        # SwiftUI app reported from Location Services (accurate WiFi-
+        # positioning); the backend can't get location itself. If neither is
+        # available, fall back to wttr.in's own IP guess (often off by tens
+        # of km on mobile-carrier connections).
         location = (self._settings.briefing_location or "").strip()
         if not location:
-            location = await _location.current_city() or ""
+            location = location_state.get_city() or ""
         url = "https://wttr.in/" + quote(location, safe="") + "?format=%C+%t&m"
         # No browser UA here: wttr.in returns its plain-text one-line format
         # only to curl-like clients; a browser UA gets the full HTML page.

@@ -45,10 +45,6 @@ macos = [
     # Calendar reads use EventKit: AppleScript 'whose' queries against the
     # Calendar app time out on real calendars (>25s); EventKit answers in ms.
     "pyobjc-framework-EventKit>=10.3 ; sys_platform == 'darwin'",
-    # Morning briefing: accurate current-location weather via Location
-    # Services (WiFi-positioning), rather than IP geolocation which is often
-    # wrong by tens of kilometres on mobile-carrier connections.
-    "pyobjc-framework-CoreLocation>=10.3 ; sys_platform == 'darwin'",
 ]
 dev = [
     "pytest>=8.3",
@@ -105,6 +101,5 @@ module = [
     "websockets.*",
     "EventKit",
     "Foundation",
-    "CoreLocation",
 ]
 ignore_missing_imports = true
