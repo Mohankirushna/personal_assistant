@@ -534,7 +534,11 @@ class GitHubDeleteRepoTool(Tool):
         "GitHub API token."
     )
     args_model: ClassVar[type[BaseModel]] = DeleteRepoArgs
-    risk_level: ClassVar[RiskLevel] = RiskLevel.SENSITIVE
+    # DESTRUCTIVE, not SENSITIVE: deleting a repo is irreversible and must ask
+    # EVERY time. SENSITIVE remembers the first approval for an identical action
+    # string and auto-allows silent repeats — so deleting the same-named repo a
+    # second time skipped the confirmation entirely. DESTRUCTIVE never remembers.
+    risk_level: ClassVar[RiskLevel] = RiskLevel.DESTRUCTIVE
 
     def __init__(
         self,

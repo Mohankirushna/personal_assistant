@@ -575,6 +575,59 @@ async def test_push_never_falls_back_to_the_servers_own_directory(
     assert calls == []  # no git command ever ran
 
 
+async def test_delete_repo_is_destructive_so_it_always_asks(tmp_path: Path) -> None:
+    """Regression: the delete tool was SENSITIVE, which the safety gate
+    remembers — so deleting the same-named repo a second time skipped the
+    confirmation entirely. Deleting a repo is irreversible and must ask EVERY
+    time, which only DESTRUCTIVE guarantees (the gate never remembers it)."""
+    from app.planner.schemas import RiskLevel
+
+    registry = ProjectRegistry(tmp_path)
+    settings = Settings(_env_file=None, projects_dir=tmp_path, github_token="t")
+    fake = FakeOllamaClient()
+    manager = ModelManager(fake, settings)
+    tool = GitHubDeleteRepoTool(registry, fake, manager, settings)
+
+    assert tool.risk_level is RiskLevel.DESTRUCTIVE
+    assert tool.assess_risk(DeleteRepoArgs(project="fitness")) is RiskLevel.DESTRUCTIVE
+
+
+async def test_safety_gate_asks_every_time_for_destructive_never_remembers() -> None:
+    """The gate remembers SENSITIVE approvals (asks once, then auto-allows an
+    identical action) but must ask again for DESTRUCTIVE every single time.
+    This is the exact mechanism behind 'it asked the first delete but not the
+    second' — the fix was making delete DESTRUCTIVE, not SENSITIVE."""
+    from app.core.safety import ConfirmationRequest, SafetyGate
+    from app.planner.schemas import RiskLevel
+
+    asks = 0
+
+    async def counting_confirmer(_req: ConfirmationRequest) -> bool:
+        nonlocal asks
+        asks += 1
+        return True
+
+    gate = SafetyGate()
+    destructive = ConfirmationRequest(
+        tool="github_delete_repo",
+        risk=RiskLevel.DESTRUCTIVE,
+        action="Delete the GitHub repository for 'fitness'? This cannot be undone.",
+    )
+    for _ in range(3):
+        decision = await gate.check(destructive, confirmer=counting_confirmer)
+        assert decision.allowed
+    assert asks == 3, "DESTRUCTIVE must prompt every time, never be remembered"
+
+    # Contrast: SENSITIVE with the identical action is remembered after the first.
+    asks = 0
+    sensitive = ConfirmationRequest(
+        tool="x", risk=RiskLevel.SENSITIVE, action="same action"
+    )
+    for _ in range(3):
+        await gate.check(sensitive, confirmer=counting_confirmer)
+    assert asks == 1, "SENSITIVE is asked once then remembered"
+
+
 async def test_delete_repo_requires_github_token(tmp_path: Path) -> None:
     _make_repo(tmp_path, "fitness", "https://github.com/mohan/fitness-app.git")
     registry = ProjectRegistry(tmp_path)
