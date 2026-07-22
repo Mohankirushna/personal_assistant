@@ -13,6 +13,7 @@ import ctypes
 import html
 import json
 import re
+import shutil
 from datetime import datetime
 from typing import ClassVar, Literal
 from urllib.parse import parse_qs, quote, quote_plus, unquote, urlparse
@@ -35,13 +36,58 @@ class OpenAppTool(Tool):
     args_model: ClassVar[type[BaseModel]] = OpenAppArgs
     risk_level: ClassVar[RiskLevel] = RiskLevel.SAFE
 
+    def __init__(self, project_registry: object | None = None) -> None:
+        # Optional so the tool stays zero-arg discoverable. app.main injects the
+        # real ProjectRegistry after discovery via set_project_registry, which
+        # makes "open <name>" project-aware: a name matching a local project
+        # opens in VS Code instead of trying to launch a macOS app that doesn't
+        # exist. Typed as object to avoid importing ProjectRegistry here (it
+        # lives in app.core and would create an import cycle through app.tools).
+        self._project_registry = project_registry
+
+    def set_project_registry(self, registry: object) -> None:
+        self._project_registry = registry
+
     async def run(self, args: OpenAppArgs) -> ToolResult:  # type: ignore[override]
+        # Project-first: if the spoken name resolves to a local project folder,
+        # open it in VS Code rather than launching an app. This is what makes
+        # "open fitness" open the fitness project for editing.
+        if self._project_registry is not None:
+            project = await self._project_registry.find(args.name)  # type: ignore[attr-defined]
+            if project is not None:
+                opened = await self._open_in_vscode(project.path)
+                if opened is not None:
+                    return opened
+
         output = await run_command(["/usr/bin/open", "-a", args.name])
         if not output.ok:
             return ToolResult.failure(
                 self.name, f"could not open {args.name!r}: {output.combined()}"
             )
         return ToolResult(tool=self.name, ok=True, summary=f"Opened {args.name}")
+
+    async def _open_in_vscode(self, path: object) -> ToolResult | None:
+        """Open a project folder in VS Code, preferring the `code` CLI (opens
+        the folder as a workspace) and falling back to `open -a`. If VS Code
+        isn't available at all, reveals the folder in Finder. Returns None
+        only if even that fails, so the caller can try the app-launch path."""
+        code_cli = shutil.which("code")
+        if code_cli:
+            argv = [code_cli, str(path)]
+        else:
+            argv = ["/usr/bin/open", "-a", "Visual Studio Code", str(path)]
+        vscode = await run_command(argv, timeout=20)
+        if vscode.ok:
+            return ToolResult(
+                tool=self.name, ok=True, summary=f"Opened {path} in VS Code"
+            )
+        finder = await run_command(["/usr/bin/open", str(path)])
+        if finder.ok:
+            return ToolResult(
+                tool=self.name, ok=True,
+                summary=f"VS Code isn't installed — opened {path} in Finder instead.",
+            )
+        return None
 
 
 # Common site shorthands so "open youtube" resolves without a full URL.

@@ -136,6 +136,15 @@ def create_app(
             )
             tool_registry.register(RefreshProjectsTool(project_registry))
 
+            # Make the already-discovered open_app tool project-aware so
+            # "open fitness" opens the fitness project in VS Code instead of
+            # failing to launch a nonexistent app named "fitness".
+            from app.tools.system.system import OpenAppTool
+
+            open_app_tool = tool_registry.get("open_app")
+            if isinstance(open_app_tool, OpenAppTool):
+                open_app_tool.set_project_registry(project_registry)
+
             if _browser_imports_available():
                 from app.tools.browser.browser import (
                     BrowserDownloadTool,

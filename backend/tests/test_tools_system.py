@@ -178,6 +178,85 @@ async def test_rate_limited_search_opens_the_search_not_the_block_pages_first_li
     assert opened == ["https://search.brave.com/search?q=price+of+iphone+15"]
 
 
+async def test_open_app_opens_a_matching_project_in_vscode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """'open fitness' where fitness is a local project must open the folder in
+    VS Code, not try (and fail) to launch a macOS app named 'fitness'."""
+    from app.core.project_registry import ProjectRegistry
+    from app.tools.system.system import OpenAppTool
+
+    (tmp_path / "fitness").mkdir()
+    registry = ProjectRegistry(tmp_path)
+    await registry.refresh()
+
+    opened: list[list[str]] = []
+
+    async def fake_run_command(argv, cwd=None, timeout=30.0) -> CommandOutput:
+        opened.append(argv)
+        return CommandOutput(0, "", "")
+
+    monkeypatch.setattr(system_module.shutil, "which", lambda _cmd: "/usr/local/bin/code")
+    monkeypatch.setattr(system_module, "run_command", fake_run_command)
+
+    tool = OpenAppTool()
+    tool.set_project_registry(registry)
+    result = await tool.run(system_module.OpenAppArgs(name="fitness"))
+
+    assert result.ok, result.summary
+    assert "VS Code" in result.summary
+    # Opened the project path via the `code` CLI, never `open -a fitness`.
+    assert opened == [["/usr/local/bin/code", str(tmp_path / "fitness")]]
+
+
+async def test_open_app_launches_a_real_app_when_no_project_matches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """'open safari' must still launch the app — only names that resolve to a
+    local project get the VS Code treatment."""
+    from app.core.project_registry import ProjectRegistry
+    from app.tools.system.system import OpenAppTool
+
+    (tmp_path / "fitness").mkdir()
+    registry = ProjectRegistry(tmp_path)
+    await registry.refresh()
+
+    opened: list[list[str]] = []
+
+    async def fake_run_command(argv, cwd=None, timeout=30.0) -> CommandOutput:
+        opened.append(argv)
+        return CommandOutput(0, "", "")
+
+    monkeypatch.setattr(system_module, "run_command", fake_run_command)
+
+    tool = OpenAppTool()
+    tool.set_project_registry(registry)
+    result = await tool.run(system_module.OpenAppArgs(name="Safari"))
+
+    assert result.ok, result.summary
+    assert opened == [["/usr/bin/open", "-a", "Safari"]]
+
+
+async def test_open_app_without_registry_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no project registry injected (bare discovery), open_app behaves
+    exactly as before — a plain app launch."""
+    from app.tools.system.system import OpenAppTool
+
+    opened: list[list[str]] = []
+
+    async def fake_run_command(argv, cwd=None, timeout=30.0) -> CommandOutput:
+        opened.append(argv)
+        return CommandOutput(0, "", "")
+
+    monkeypatch.setattr(system_module, "run_command", fake_run_command)
+
+    result = await OpenAppTool().run(system_module.OpenAppArgs(name="Notes"))
+    assert result.ok
+    assert opened == [["/usr/bin/open", "-a", "Notes"]]
+
+
 def test_web_answer_strips_html_to_readable_text() -> None:
     from app.tools.system.system import WebAnswerTool
 

@@ -638,12 +638,14 @@ def match_fast_intent(utterance: str) -> ToolCallRequest | None:
     open_repo_name = _match_open_repo(normalized)
     if open_repo_name:
         return ToolCallRequest(name="github_open_repo", arguments={"project": open_repo_name})
-    # "open fitness project", "show the jarvis folder" — routes to locate_project
-    # which confirms the project exists and reports its path, so the user knows
-    # the exact location and the LLM can then open it.
+    # "open fitness project", "open the jarvis folder" — route to open_app,
+    # which is project-aware: it resolves the name against the local projects
+    # and opens the folder in VS Code (falling back to launching an app if it's
+    # not a project). "where is X" / "locate X" still go to locate_project
+    # above when the user only wants the path, not to open it.
     open_project_name = _match_open_project(normalized)
     if open_project_name:
-        return ToolCallRequest(name="locate_project", arguments={"project": open_project_name})
+        return ToolCallRequest(name="open_app", arguments={"name": open_project_name})
     # "push X (project) to github" — bypasses the ambiguity between
     # github_push and the low-level `git` tool for this common phrasing.
     push_repo_match = _match_push_repo(normalized)
