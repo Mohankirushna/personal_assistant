@@ -137,6 +137,137 @@ async def test_open_repo_no_remote_configured(tmp_path: Path, settings: Settings
     assert "no GitHub remote" in result.summary
 
 
+async def test_open_repo_reports_a_deleted_remote_instead_of_pretending_it_worked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repo's local git remote survives it being deleted on GitHub — the
+    tool must actually check, not just fire `open` at a stale URL and claim
+    success."""
+    _make_repo(tmp_path, "fitness", "https://github.com/mohan/fitness-app.git")
+    registry = ProjectRegistry(tmp_path)
+    settings = Settings(_env_file=None, projects_dir=tmp_path, github_token="fake_token")
+    fake = FakeOllamaClient()
+    manager = ModelManager(fake, settings)
+
+    async def fake_exists(remote_url: str, token: str | None) -> bool | None:
+        return False  # simulates a 404 from the GitHub API
+
+    monkeypatch.setattr(github_module, "_repo_exists_on_github", fake_exists)
+    opened: list[str] = []
+
+    async def mock_run(cmd, cwd=None, timeout=30.0):
+        if cmd[0] == "open":
+            opened.append(cmd[1])
+        return CommandOutput(0, "", "")
+
+    monkeypatch.setattr(github_module, "run_command", mock_run)
+
+    tool = GitHubOpenRepoTool(registry, fake, manager, settings)
+    result = await tool.run(OpenRepoArgs(project="fitness"))
+
+    assert not result.ok
+    assert "no longer exists on github" in result.summary.lower()
+    assert opened == []  # never opened a dead link
+
+
+async def test_open_repo_proceeds_when_existence_cant_be_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No token (or a network hiccup) must degrade to the old best-effort
+    behaviour, not block every open with an unrelated failure."""
+    _make_repo(tmp_path, "fitness", "https://github.com/mohan/fitness-app.git")
+    registry = ProjectRegistry(tmp_path)
+    settings = Settings(_env_file=None, projects_dir=tmp_path, github_token=None)
+    fake = FakeOllamaClient()
+    manager = ModelManager(fake, settings)
+
+    opened: list[str] = []
+
+    async def mock_run(cmd, cwd=None, timeout=30.0):
+        if cmd[0] == "open":
+            opened.append(cmd[1])
+        return CommandOutput(0, "", "")
+
+    monkeypatch.setattr(github_module, "run_command", mock_run)
+
+    tool = GitHubOpenRepoTool(registry, fake, manager, settings)
+    result = await tool.run(OpenRepoArgs(project="fitness"))
+
+    assert result.ok, result.summary
+    assert opened == ["https://github.com/mohan/fitness-app"]
+
+
+async def test_locate_project_reports_a_deleted_remote_instead_of_pretending_it_worked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_repo(tmp_path, "fitness", "https://github.com/mohan/fitness-app.git")
+    registry = ProjectRegistry(tmp_path)
+    settings = Settings(_env_file=None, projects_dir=tmp_path, github_token="fake_token")
+    fake = FakeOllamaClient()
+    manager = ModelManager(fake, settings)
+
+    async def fake_exists(remote_url: str, token: str | None) -> bool | None:
+        return False
+
+    monkeypatch.setattr(github_module, "_repo_exists_on_github", fake_exists)
+
+    tool = LocateProjectTool(registry, fake, manager, settings)
+    result = await tool.run(LocateProjectArgs(project="fitness"))
+
+    assert result.ok, result.summary  # the project itself is still found locally
+    assert "no longer exists on github" in result.summary.lower()
+
+
+class _FakeClient:
+    """A minimal httpx.AsyncClient stand-in: async-with, one .get() call."""
+
+    def __init__(self, status_code: int) -> None:
+        self._status_code = status_code
+
+    async def __aenter__(self) -> "_FakeClient":
+        return self
+
+    async def __aexit__(self, *exc: object) -> bool:
+        return False
+
+    async def get(self, url: str, headers: dict[str, str] | None = None):
+        class _Response:
+            status_code = self._status_code
+
+        return _Response()
+
+
+async def test_repo_exists_on_github_returns_false_for_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        github_module.httpx, "AsyncClient", lambda timeout=None: _FakeClient(404)
+    )
+    result = await github_module._repo_exists_on_github(
+        "https://github.com/mohan/gone", "fake_token"
+    )
+    assert result is False
+
+
+async def test_repo_exists_on_github_returns_true_for_200(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        github_module.httpx, "AsyncClient", lambda timeout=None: _FakeClient(200)
+    )
+    result = await github_module._repo_exists_on_github(
+        "https://github.com/mohan/alive", "fake_token"
+    )
+    assert result is True
+
+
+async def test_repo_exists_on_github_returns_none_without_token() -> None:
+    result = await github_module._repo_exists_on_github(
+        "https://github.com/mohan/whatever", None
+    )
+    assert result is None
+
+
 async def test_push_no_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Initialize a real git repo for this test
     _make_repo(tmp_path, "repo", "https://github.com/mohan/repo.git")

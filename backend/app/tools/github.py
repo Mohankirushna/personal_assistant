@@ -104,6 +104,38 @@ async def _create_repo_on_github(
     return None
 
 
+async def _repo_exists_on_github(remote_url: str, token: str | None) -> bool | None:
+    """True/False if we could check, None if we couldn't (no token, unparseable
+    URL, or a network error) — callers should treat None as "unknown, proceed
+    as before" rather than as a failure.
+
+    A repo's local git remote is just a URL saved in .git/config; it survives
+    the repo being deleted on GitHub, so tools that read it (locate_project,
+    open_repo) must not present it as live without checking."""
+    if not token:
+        return None
+    match = re.match(r"https://github\.com/([^/]+)/([^/]+)/?$", remote_url)
+    if not match:
+        return None
+    owner, repo_name = match.groups()
+    try:
+        async with httpx.AsyncClient(timeout=5) as http_client:
+            response = await http_client.get(
+                f"https://api.github.com/repos/{owner}/{repo_name}",
+                headers={
+                    "Authorization": f"token {token}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+            )
+    except httpx.HTTPError:
+        return None
+    if response.status_code == 404:
+        return False
+    if 200 <= response.status_code < 300:
+        return True
+    return None
+
+
 async def _current_branch(cwd: Path | None) -> str:
     result = await run_command(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=cwd)
     return result.stdout.strip() if result.ok and result.stdout.strip() else "main"
@@ -172,6 +204,14 @@ class GitHubOpenRepoTool(Tool):
                 self.name,
                 f"{project.name} exists locally but has no GitHub remote configured "
                 "(no 'origin' set). Add one with `git remote add origin <url>`.",
+            )
+        exists = await _repo_exists_on_github(project.remote_url, self._settings.github_token)
+        if exists is False:
+            return ToolResult.failure(
+                self.name,
+                f"{project.name}'s local git config points at {project.remote_url}, but "
+                "that repo no longer exists on GitHub (it was likely deleted). Push again "
+                "to recreate it, or remove the stale remote with `git remote remove origin`.",
             )
         result = await run_command(["open", project.remote_url])
         if not result.ok:
@@ -392,7 +432,16 @@ class LocateProjectTool(Tool):
         )
         if project is not None:
             if project.remote_url:
-                git_note = f"It's on GitHub at {project.remote_url}."
+                exists = await _repo_exists_on_github(
+                    project.remote_url, self._settings.github_token
+                )
+                if exists is False:
+                    git_note = (
+                        f"Its local remote points at {project.remote_url}, but that repo "
+                        "no longer exists on GitHub (it was likely deleted)."
+                    )
+                else:
+                    git_note = f"It's on GitHub at {project.remote_url}."
             elif project.is_git:
                 git_note = "It's a git repo but has no GitHub remote yet."
             else:
