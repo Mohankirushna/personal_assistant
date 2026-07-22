@@ -103,6 +103,7 @@ def create_app(
         sessions = SessionStore(max_messages=app_settings.max_history_messages)
 
         tool_registry = registry if registry is not None else ToolRegistry()
+        warmed_registry: Any | None = None  # set below when we build our own tools
         if registry is None:
             tool_registry.discover()
             # Service-dependent tools are injected here, not discovered.
@@ -144,6 +145,13 @@ def create_app(
             open_app_tool = tool_registry.get("open_app")
             if isinstance(open_app_tool, OpenAppTool):
                 open_app_tool.set_project_registry(project_registry)
+
+            # Warm the project registry so the FIRST delete/open confirmation
+            # already has project data. The delete confirmation opens the
+            # repo's live GitHub page for visual verification, but that needs a
+            # warm cache (confirmation_action is synchronous and can't scan) —
+            # a cold cache would silently skip the browser preview.
+            warmed_registry = project_registry
 
             if _browser_imports_available():
                 from app.tools.browser.browser import (
@@ -238,9 +246,25 @@ def create_app(
 
             prewarm_task = asyncio.create_task(_prewarm())
 
+        # Warm the project registry in the background (see note above) so the
+        # first delete/open confirmation can open the repo's GitHub page.
+        warm_registry_task: asyncio.Task[Any] | None = None
+        if warmed_registry is not None:
+
+            async def _warm_registry(reg: Any = warmed_registry) -> None:
+                try:
+                    count = await reg.refresh()
+                    logger.info("Project registry warmed (%d projects)", count)
+                except Exception:  # noqa: BLE001 - best-effort warm-up
+                    logger.warning("Project registry warm failed; will scan on first use")
+
+            warm_registry_task = asyncio.create_task(_warm_registry())
+
         try:
             yield
         finally:
+            if warm_registry_task is not None and not warm_registry_task.done():
+                warm_registry_task.cancel()
             if prewarm_task is not None and not prewarm_task.done():
                 prewarm_task.cancel()
             active_browser = getattr(app.state, "browser_session", None)
