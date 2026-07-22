@@ -12,6 +12,7 @@ before pushing (no manual step needed).
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import re
@@ -609,10 +610,34 @@ class GitHubDeleteRepoTool(Tool):
                 f"GitHub API error ({response.status_code}): {response.text[:200]}",
             )
 
-        return ToolResult(
-            tool=self.name, ok=True,
-            summary=f"Deleted '{repo_name}' from GitHub. The local folder remains.",
-            data={"repo": repo_name, "owner": owner, "status": "deleted"},
+        # GitHub's own DELETE endpoint has been observed to answer 2xx a
+        # moment before the repo actually stops resolving elsewhere (brief
+        # propagation delay). Never claim "Deleted" on the API's word alone —
+        # poll until it actually 404s, or say plainly that it's still
+        # pending rather than asserting something unverified.
+        for attempt in range(5):
+            await asyncio.sleep(0.5 * (attempt + 1))
+            still_exists = await _repo_exists_on_github(
+                f"https://github.com/{owner}/{repo_name}", self._settings.github_token
+            )
+            if still_exists is False:
+                return ToolResult(
+                    tool=self.name, ok=True,
+                    summary=f"Deleted '{repo_name}' from GitHub. The local folder remains.",
+                    data={"repo": repo_name, "owner": owner, "status": "deleted"},
+                )
+            if still_exists is None:
+                # Can't verify (no token, network hiccup) — trust the 2xx.
+                return ToolResult(
+                    tool=self.name, ok=True,
+                    summary=f"Deleted '{repo_name}' from GitHub. The local folder remains.",
+                    data={"repo": repo_name, "owner": owner, "status": "deleted"},
+                )
+
+        return ToolResult.failure(
+            self.name,
+            f"GitHub accepted the delete request for '{repo_name}', but it still shows as "
+            "existing after checking. It may still be processing — check again shortly.",
         )
 
 

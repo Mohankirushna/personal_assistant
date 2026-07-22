@@ -7,6 +7,7 @@ actually works in production.
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from pathlib import Path
 
@@ -602,6 +603,92 @@ async def test_delete_repo_requires_github_remote(tmp_path: Path) -> None:
 
     assert not result.ok
     assert "no github remote" in result.summary.lower()
+
+
+class _DeleteVerifyClient:
+    """httpx.AsyncClient stand-in covering both the DELETE call and the
+    follow-up existence-check GETs, sharing state across the multiple
+    `AsyncClient()` instances the real code creates (one per call)."""
+
+    def __init__(self, delete_status: int, get_sequence: list[int]) -> None:
+        self._delete_status = delete_status
+        self._get_sequence = get_sequence  # shared, mutated in place
+
+    async def __aenter__(self) -> "_DeleteVerifyClient":
+        return self
+
+    async def __aexit__(self, *exc: object) -> bool:
+        return False
+
+    async def delete(self, url: str, headers: dict[str, str] | None = None):
+        class _Resp:
+            status_code = self._delete_status
+            text = ""
+
+        return _Resp()
+
+    async def get(self, url: str, headers: dict[str, str] | None = None):
+        code = self._get_sequence.pop(0) if self._get_sequence else 404
+
+        class _Resp:
+            status_code = code
+
+        return _Resp()
+
+
+async def test_delete_repo_verifies_before_claiming_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The original bug: GitHub's DELETE answered 2xx, but a GET moments
+    later still showed the repo as existing (propagation delay) — the tool
+    must poll until it actually confirms gone, never claim success on the
+    2xx alone."""
+    _make_repo(tmp_path, "fitness", "https://github.com/mohan/fitness-app.git")
+    registry = ProjectRegistry(tmp_path)
+    settings = Settings(_env_file=None, projects_dir=tmp_path, github_token="fake_token")
+    fake = FakeOllamaClient()
+    manager = ModelManager(fake, settings)
+
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(github_module.asyncio, "sleep", lambda *_: real_sleep(0))
+    get_sequence = [200, 200, 404]  # still exists twice, then confirmed gone
+    monkeypatch.setattr(
+        github_module.httpx, "AsyncClient",
+        lambda timeout=None: _DeleteVerifyClient(204, get_sequence),
+    )
+
+    tool = GitHubDeleteRepoTool(registry, fake, manager, settings)
+    result = await tool.run(DeleteRepoArgs(project="fitness"))
+
+    assert result.ok, result.summary
+    assert "deleted" in result.summary.lower()
+    assert get_sequence == []  # all three checks were consumed
+
+
+async def test_delete_repo_reports_pending_if_never_confirmed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If GitHub never actually confirms the repo is gone within the retry
+    budget, the tool must say so plainly rather than asserting 'Deleted'."""
+    _make_repo(tmp_path, "fitness", "https://github.com/mohan/fitness-app.git")
+    registry = ProjectRegistry(tmp_path)
+    settings = Settings(_env_file=None, projects_dir=tmp_path, github_token="fake_token")
+    fake = FakeOllamaClient()
+    manager = ModelManager(fake, settings)
+
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(github_module.asyncio, "sleep", lambda *_: real_sleep(0))
+    get_sequence = [200, 200, 200, 200, 200]  # never confirms gone
+    monkeypatch.setattr(
+        github_module.httpx, "AsyncClient",
+        lambda timeout=None: _DeleteVerifyClient(204, get_sequence),
+    )
+
+    tool = GitHubDeleteRepoTool(registry, fake, manager, settings)
+    result = await tool.run(DeleteRepoArgs(project="fitness"))
+
+    assert not result.ok
+    assert "still shows as existing" in result.summary.lower()
 
 
 async def test_delete_repo_confirmation_preview(tmp_path: Path) -> None:
