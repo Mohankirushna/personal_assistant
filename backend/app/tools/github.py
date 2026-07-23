@@ -21,8 +21,6 @@ import subprocess
 from pathlib import Path
 from typing import ClassVar
 
-logger = logging.getLogger(__name__)
-
 import httpx
 from pydantic import BaseModel, Field
 
@@ -33,6 +31,8 @@ from app.core.project_registry import ProjectInfo, ProjectRegistry, normalize_re
 from app.planner.schemas import RiskLevel, ToolResult
 from app.tools._common import run_command
 from app.tools.base import Tool
+
+logger = logging.getLogger(__name__)
 
 
 async def _resolve_project(
@@ -358,9 +358,8 @@ class GitHubPushTool(Tool):
                 else:
                     known = ", ".join(p.name for p in await self._registry.list_projects())
                     detail = f" Known local projects: {known}." if known else ""
-                    return ToolResult.failure(
-                        self.name, f"Could not find a local project matching '{args.project}'.{detail}"
-                    )
+                    msg = f"Could not find a local project matching '{args.project}'.{detail}"
+                    return ToolResult.failure(self.name, msg)
 
         if cwd is None:
             # NEVER fall back to the server's own process directory — it has
@@ -375,12 +374,19 @@ class GitHubPushTool(Tool):
         git_dir = cwd / ".git"
         if not git_dir.exists():
             if not args.repo_name:
-                return ToolResult.failure(
-                    self.name,
-                    "No git repo found. Please provide the GitHub repo name you want to create "
-                    "(e.g., 'jarvis', 'skin-analyser'). Say: 'push [project] to github as [repo-name]'.",
+                msg = (
+                    "No git repo found. "
+                    "Please provide the GitHub repo name you want to create "
+                    "(e.g., 'jarvis', 'skin-analyser'). "
+                    "Say: 'push [project] to github as [repo-name]'."
                 )
-            username = (args.github_username or self._settings.github_username or "Mohankirushna").strip()
+                return ToolResult.failure(self.name, msg)
+            default_username = "Mohankirushna"
+            username = (
+                args.github_username
+                or self._settings.github_username
+                or default_username
+            ).strip()
             repo_name = args.repo_name.lower()
 
             # Try to create repo on GitHub first (if API token is configured)
@@ -389,10 +395,11 @@ class GitHubPushTool(Tool):
                     repo_name, username, self._settings.github_token
                 )
                 if repo_url is None:
-                    return ToolResult.failure(
-                        self.name,
-                        f"Could not create repo '{repo_name}' on GitHub. Check the API token or try creating it manually.",
+                    msg = (
+                        f"Could not create repo '{repo_name}' on GitHub. "
+                        "Check the API token or try creating it manually."
                     )
+                    return ToolResult.failure(self.name, msg)
             else:
                 # Fallback: assume standard GitHub URL (repo must be created manually)
                 repo_url = f"https://github.com/{username}/{repo_name}.git"
@@ -403,9 +410,12 @@ class GitHubPushTool(Tool):
                 return ToolResult.failure(self.name, f"git init failed: {init_result.combined()}")
 
             # Add remote
-            remote_result = await run_command(["git", "remote", "add", "origin", repo_url], cwd=cwd)
+            remote_result = await run_command(
+                ["git", "remote", "add", "origin", repo_url], cwd=cwd
+            )
             if not remote_result.ok:
-                return ToolResult.failure(self.name, f"git remote add failed: {remote_result.combined()}")
+                msg = f"git remote add failed: {remote_result.combined()}"
+                return ToolResult.failure(self.name, msg)
 
             # A brand-new bootstrapped folder has nothing to commit yet; without
             # a seed file the push below would silently no-op ("no changes to
@@ -643,9 +653,11 @@ class GitHubDeleteRepoTool(Tool):
         # delete. The safety gate will catch the error and re-prompt with
         # confirmation_action message.
         if not self._settings.github_token:
-            return ToolResult.failure(
-                self.name, "GitHub API token not configured. Set JARVIS_GITHUB_TOKEN to delete repos."
+            msg = (
+                "GitHub API token not configured. "
+                "Set JARVIS_GITHUB_TOKEN to delete repos."
             )
+            return ToolResult.failure(self.name, msg)
 
         # Refresh first so a just-created/renamed project is seen: a stale cache
         # is exactly what let a deletion resolve to the wrong (old) project.

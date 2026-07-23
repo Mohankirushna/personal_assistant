@@ -79,12 +79,16 @@ async def test_resolve_project_not_found(tmp_path: Path, settings: Settings) -> 
     fake.queued.append("unknown")
     manager = ModelManager(fake, settings)
 
-    result = await _resolve_project("completely unrelated banana", registry, fake, manager, settings)
+    result = await _resolve_project(
+        "completely unrelated banana", registry, fake, manager, settings
+    )
 
     assert result is None
 
 
-async def test_open_repo_uses_real_remote(tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_open_repo_uses_real_remote(
+    tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The URL that gets opened is the repo's real 'origin', not a guess."""
     _make_repo(tmp_path, "skin_analyser", "git@github.com:mohan/skin-analyser.git")
     registry = ProjectRegistry(tmp_path)
@@ -225,7 +229,7 @@ class _FakeClient:
     def __init__(self, status_code: int) -> None:
         self._status_code = status_code
 
-    async def __aenter__(self) -> "_FakeClient":
+    async def __aenter__(self) -> _FakeClient:
         return self
 
     async def __aexit__(self, *exc: object) -> bool:
@@ -711,7 +715,7 @@ class _DeleteVerifyClient:
         self._delete_status = delete_status
         self._get_sequence = get_sequence  # shared, mutated in place
 
-    async def __aenter__(self) -> "_DeleteVerifyClient":
+    async def __aenter__(self) -> _DeleteVerifyClient:
         return self
 
     async def __aexit__(self, *exc: object) -> bool:
