@@ -28,6 +28,10 @@ well here, it runs well anywhere.
 | "Remind me about the demo tomorrow at 10 AM" | Creates a real Reminder |
 | "What's the latest news about SpaceX?" | Searches and opens results |
 | "Create a folder named reports and list it" | Chains multiple tools in one command |
+| **"Push fitness to github"** | **Creates repo, commits, pushes code (auto-recreates deleted remotes)** |
+| **"Delete the jarvis project repo from github"** | **Opens live GitHub page for verification, asks permission, then deletes (strict name resolution — never wrong repo)** |
+| **"Open fitness in github"** | **Opens the project's actual GitHub repo in browser** |
+| **"Good morning" / "What's my day like"** | **Speaks your briefing: date, calendar, unread emails, weather, top news headlines (auto-triggered on Mac wake)** |
 
 …and much more, across **50 safety-gated tools** organized into 9 categories.
 
