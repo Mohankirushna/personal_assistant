@@ -36,6 +36,12 @@ final class AppState: ObservableObject {
     private var healthMonitorTask: Task<Void, Never>?
     private var isStartingBackend = false
     private var wakeObserver: NSObjectProtocol?
+    // The briefing speaks on system wake (lid open). It should also speak once
+    // when the app itself launches/connects — login, reboot, or a manual
+    // quit-and-reopen — which `didWakeNotification` never covers. This guard
+    // keeps it to a single announcement per app run, so the health-check
+    // reconnect loop can't re-trigger it.
+    private var didAnnounceLaunchBriefing = false
     private enum ConfirmationSource { case chat, voice }
     private var confirmationSource: ConfirmationSource?
 
@@ -60,6 +66,23 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Speak the briefing once when the app first connects at launch (login,
+    /// reboot, or a manual quit-and-reopen). `didWakeNotification` only covers
+    /// waking from sleep, so without this a fresh launch is silent. The backend
+    /// still decides whether audio is audible (muted → it won't speak), and the
+    /// guard means the reconnect loop can't announce it again.
+    private func announceLaunchBriefingIfNeeded(_ client: BackendClient) {
+        guard !didAnnounceLaunchBriefing else { return }
+        didAnnounceLaunchBriefing = true
+        Task { [weak self] in
+            guard self != nil else { return }
+            // A short beat lets the reported location land first, so the
+            // briefing's weather matches where the Mac actually is.
+            try? await Task.sleep(for: .seconds(2))
+            _ = try? await client.announceBriefing()
+        }
+    }
+
     func start() async {
         // A health check and an automatic retry can arrive at the same time.
         // Keep a single launch attempt in flight so we never spawn competing
@@ -79,6 +102,7 @@ final class AppState: ObservableObject {
                 // Report current location once connected, so the first
                 // briefing already has accurate local weather.
                 locationProvider.requestLocation()
+                announceLaunchBriefingIfNeeded(client)
             }
         } catch {
             status = .offline(error.localizedDescription)
