@@ -29,10 +29,77 @@ well here, it runs well anywhere.
 | "What's the latest news about SpaceX?" | Searches and opens results |
 | "Create a folder named reports and list it" | Chains multiple tools in one command |
 
-…and much more, across **40 safety-gated tools**: files/Finder, terminal, git,
-VS Code, clipboard, apps and windows, media, volume/brightness, power, Bluetooth,
-reminders, screenshots, vision, web search, news, YouTube, Spotify, WhatsApp, and
-full browser automation.
+…and much more, across **50 safety-gated tools** organized into 9 categories.
+
+## The 50 Tools
+
+### System Control (7 tools)
+- `battery_status` — Get Mac's current battery charge percentage and power state
+- `brightness` — Get, set, or adjust (up/down) the display brightness
+- `focus_mode` — Enable, disable, or toggle Do Not Disturb / Focus mode
+- `media_control` — Control music playback (play, pause, next, previous)
+- `system_power` — Restart or shut down the Mac (requires explicit approval)
+- `volume` — Get, set, or adjust (up/down) the system output volume
+- `window_arrange` — Move/resize app windows (left half, right half, maximize, center)
+
+### Communication (7 tools)
+- `check_email` — Check Apple Mail inbox: unread count, senders, subjects
+- `reply_email` — Reply to the most recent unread email
+- `send_email` — Compose and send emails through Apple Mail
+- `summarize_inbox` — Read and summarize matching emails
+- `whatsapp_send` — Send WhatsApp text messages via WAHA gateway
+- `list_running_apps` — List all currently running applications
+- `list_bluetooth_devices` — List Bluetooth devices connected to this Mac
+
+### Information Retrieval (5 tools)
+- `web_answer` — Search the web and return text from top result
+- `news_search` — Search and open Google News articles by topic
+- `browser_search` — Search Google or Wikipedia in the visible browser
+- `brave_search_open_first` — Search Brave Search and open the first non-sponsored result
+- `youtube_play` — Find and play videos on YouTube
+
+### File Management (8 tools)
+- `finder_list` — List the contents of a folder
+- `finder_search` — Search files on Mac by name/content (Spotlight)
+- `finder_delete` — Delete files/folders to Trash (recoverable)
+- `finder_move` — Move or rename files/folders
+- `finder_create_folder` — Create new folders (including parent directories)
+- `finder_extract` — Extract .zip archives
+- `finder_compress` — Compress files/folders into .zip archives
+- `open_file` — Open files/folders with their default macOS app
+
+### Productivity (5 tools)
+- `morning_briefing` — Daily briefing: greeting, date, calendar, emails, weather, news
+- `calendar` — Read your macOS Calendar events (today's, tomorrow's, or search)
+- `timer` — Set a countdown timer (1-60 minutes, optional label)
+- `create_reminder` — Create reminders in your default macOS Reminders list
+- `clock` — Get current local date and time on this Mac
+
+### Music & Streaming (3 tools)
+- `spotify_play` — Find a song/artist on Spotify and play it
+- `spotify_open_playlist` — Open a named playlist in your Spotify library
+- `youtube_play` — Find and play videos on YouTube
+
+### GitHub & Development (6 tools)
+- `github_delete_repo` — Delete GitHub repositories (with strict name resolution)
+- `github_push` — Create GitHub repos and push code (auto-recreates deleted remotes)
+- `github_open_repo` — Open GitHub repositories in the browser
+- `locate_project` — Find and report paths to local projects
+- `refresh_projects` — Refresh the project registry cache
+- `git` — Run git commands (status, log, diff, add, commit, push, etc)
+
+### AI Vision (1 tool)
+- `look_at_screen` — Analyze screen content with Qwen 2.5-VL vision model
+
+### Utilities (8 tools)
+- `open_app` — Open or bring macOS applications to the front
+- `quit_app` — Quit running applications (may prompt to save)
+- `open_url` — Open websites/URLs in your real browser
+- `screenshot` — Take and save screen screenshots
+- `terminal_run` — Run shell commands (zsh) and return output
+- `clipboard_read` — Read the current text contents of the clipboard
+- `clipboard_write` — Copy text to the clipboard (replaces current contents)
+- `roll_dice` — Roll dice for decisions or games
 
 ## Why this exists
 
@@ -85,7 +152,7 @@ classified: `safe` runs immediately, `sensitive` needs one-time approval,
 Allow/Deny click in the UI — the exact command shown verbatim, never a paraphrase.
 The LLM can *propose*; only you can *authorize*.
 
-**5. Tool Executor** — 40 self-contained tools implementing one interface,
+**5. Tool Executor** — 50 self-contained tools implementing one interface,
 auto-discovered at startup (drop a new tool file in, it just works — plugins use the
 same mechanism). AppleScript, Accessibility APIs, subprocess, and Playwright under
 the hood.
@@ -185,9 +252,10 @@ wake-word threshold, TTS engine, WAHA/WhatsApp, and more).
 
 ## Quality
 
-- **347 backend tests** (pytest): unit, API, WebSocket, and integration suites
+- **549+ backend tests** (pytest): unit, API, WebSocket, and integration suites
   against the real models — including regression tests for every hallucination
-  and misrouting bug found in daily use. Optional-dependency suites skip cleanly.
+  and misrouting bug found in daily use (strict GitHub resolution, briefing wake-up,
+  fast-intent routing). Optional-dependency suites skip cleanly.
 - **Swift self-tests** for wire decoding and client behavior (`swift run jarvis-app-selftest`).
 - **ruff + mypy** clean (typed throughout), CI workflow included.
 - Docs: [architecture](docs/ARCHITECTURE.md) · [API reference](docs/API.md) ·
@@ -208,12 +276,17 @@ wake-word threshold, TTS engine, WAHA/WhatsApp, and more).
 
 Actively developed — this list moves:
 
+- [x] GitHub repo management (create, push, delete with strict resolution)
+- [x] Morning briefing (auto-triggered on Mac wake with weather, calendar, emails, news)
+- [x] Calendar access
+- [x] Email management (check, send, reply, summarize)
+- [x] AI Vision (screen analysis with Qwen 2.5-VL)
+- [x] 50+ tools across 9 categories
 - [ ] Push-to-talk global hotkey
 - [ ] Tool-activity feed in the chat window (already live in the voice overlay)
 - [ ] Memory dashboard — see and edit what Jarvis remembers
 - [ ] Context compression for long sessions
 - [ ] Multilingual voice (Whisper multilingual + matching TTS)
-- [ ] More tools: calendar, mail, notes
 - [ ] Installer / one-command setup polish
 
 ## License
