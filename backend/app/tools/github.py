@@ -616,7 +616,7 @@ class GitHubDeleteRepoTool(Tool):
         self._model_manager = model_manager
         self._settings = settings or get_settings()
 
-    def confirmation_action(self, args: DeleteRepoArgs) -> str | None:
+    def confirmation_action(self, args: BaseModel) -> str | None:
         """Show EXACTLY what will be deleted, and never a wrong repo.
 
         Uses the same STRICT resolution as run() (against the cached project
@@ -625,6 +625,7 @@ class GitHubDeleteRepoTool(Tool):
         repo when that strict match is certain; otherwise it asks plainly and
         lets run() do the authoritative (refreshed) resolution. Always returns
         a message — deletion is destructive and never happens silently."""
+        assert isinstance(args, DeleteRepoArgs)
         projects = self._registry.cached_projects()
         project, _why = _resolve_project_for_deletion(args.project, projects)
         if project is not None and project.remote_url:
