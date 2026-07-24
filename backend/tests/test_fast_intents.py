@@ -839,6 +839,73 @@ def test_push_repo_commands_route_to_github_push(
     assert call.arguments == expected
 
 
+# Two phrasings shipped broken and were only caught live, each time falling
+# through to the LLM planner (which re-searched the topic instead of reading
+# the page the user had actually opened) rather than matching here: bare
+# "read out loud" first, then bare "read out" (no "loud") after that. Both
+# are pinned explicitly below so a future edit to the signal list can't
+# silently drop either again.
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "read this out loud",
+        "read that aloud",
+        "read it to me",
+        "read this news content outloud",  # normalization keeps "outloud" as one token
+        "read this article to me",
+        "read the article out loud",
+        "read the page aloud",
+        "read the story to me",
+        "read this",
+        "read that",
+        "read it",
+        "read out loud",  # bare, no object — caught live
+        "read aloud",
+        "read to me",
+        "read out",  # bare, no "loud" — caught live
+        "read this out",
+        "read that out",
+        "read the article out",
+    ],
+)
+def test_read_aloud_phrasings_match_read_url_aloud(utterance: str) -> None:
+    call = match_fast_intent(utterance)
+    assert call is not None, f"{utterance!r} should match read_url_aloud"
+    assert call.name == "read_url_aloud"
+    assert call.arguments == {}  # url is resolved from session context by the planner
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "read my email",
+        "read the news",
+        "read out my emails",
+        "read out my messages",
+        "ready out",  # must not fuzzy-match "read out"
+    ],
+)
+def test_read_aloud_does_not_swallow_unrelated_read_requests(utterance: str) -> None:
+    call = match_fast_intent(utterance)
+    assert call is None or call.name != "read_url_aloud", (
+        f"{utterance!r} should not route to read_url_aloud"
+    )
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    ["do it again", "say it again", "read it again", "repeat that", "repeat", "once more"],
+)
+def test_repeat_phrasings_match_the_repeat_sentinel(utterance: str) -> None:
+    # The planner (not fast_intents) decides whether this actually becomes
+    # another read_url_aloud call — see test_planner.py's
+    # test_do_it_again_reruns_read_url_aloud_when_last_turn_spoke and
+    # test_do_it_again_falls_through_when_last_turn_was_unrelated.
+    call = match_fast_intent(utterance)
+    assert call is not None, f"{utterance!r} should match the repeat sentinel"
+    assert call.name == "repeat_last_speech"
+
+
 @pytest.mark.parametrize(
     "utterance",
     [

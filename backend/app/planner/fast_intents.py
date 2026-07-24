@@ -198,21 +198,28 @@ def _whatsapp_recipient(raw: str) -> str:
 # "read this out loud", "read that aloud", "read it to me", "read this news
 # content outloud" (normalization strips punctuation only, not spaces, so
 # "outloud" as one word still matches via out\s*loud), "read the article to
-# me", and bare "read out loud"/"read aloud" with NO object at all — a
-# perfectly natural phrasing (observed live: it fell through to the LLM
-# planner, which re-searched the topic instead of reading the page the user
-# had actually opened). A bare pronoun ("read this"/"read that"/"read it")
-# is unambiguous enough to match without a trailing signal; a noun phrase
+# me", "read out"/"read out loud"/"read aloud" with NO object at all — all
+# perfectly natural phrasings. Two were caught live only after shipping,
+# each falling through to the LLM planner (which re-searched the topic
+# instead of reading the page the user had actually opened) rather than
+# read_url_aloud: bare "read out loud" first, then bare "read out" (no
+# "loud") after that. Both were separate literal alternatives before this
+# comment, which is exactly how the second one slipped through — a signal
+# word missed in one of three duplicated spots. Defined once as
+# _READ_ALOUD_SIGNAL and reused everywhere so a future addition can't do
+# that again. A bare pronoun ("read this"/"read that"/"read it") is
+# unambiguous enough to match without a trailing signal; a noun phrase
 # ("the article") requires one so this doesn't swallow unrelated "read the
 # news about X" requests. The URL itself is resolved from session context in
 # the planner (fast_intents has no access to it), so no argument is filled
 # in here.
+_READ_ALOUD_SIGNAL = r"(?:out\s*loud|aloud|to me|out)"
 _READ_ALOUD = re.compile(
     r"^read (?:"
-    r"(?:this|that|it)(?:\s+(?:out\s*loud|aloud|to me))?"
-    r"|(?:(?:this|that|the)\s+)?(?:article|page|story|news(?:\s+content)?|link|content|webpage)"
-    r"\s+(?:out\s*loud|aloud|to me)"
-    r"|(?:out\s*loud|aloud|to me)"
+    rf"(?:this|that|it)(?:\s+{_READ_ALOUD_SIGNAL})?"
+    rf"|(?:(?:this|that|the)\s+)?(?:article|page|story|news(?:\s+content)?|link|content|webpage)"
+    rf"\s+{_READ_ALOUD_SIGNAL}"
+    rf"|{_READ_ALOUD_SIGNAL}"
     r")$"
 )
 # "do it again", "say it again", "repeat that" — ambiguous on their own (a
