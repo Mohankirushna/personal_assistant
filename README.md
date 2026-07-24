@@ -32,10 +32,12 @@ well here, it runs well anywhere.
 | **"Delete the jarvis project repo from github"** | **Opens live GitHub page for verification, asks permission, then deletes (strict name resolution — never wrong repo)** |
 | **"Open fitness in github"** | **Opens the project's actual GitHub repo in browser** |
 | **"Good morning" / "What's my day like"** | **Speaks your briefing: date, calendar, unread emails, weather, top news headlines (auto-triggered on Mac wake)** |
+| **"Read this out loud"** (after opening an article) | **Reads Brave's actual current tab aloud — narrated by the model from the real page text, boilerplate and paywall banners stripped, not summarized to one line** |
+| **"Do it again"** (after a read-aloud) | **Re-fetches and re-narrates — only when the previous turn actually read something aloud, never misfires on an unrelated repeat** |
 
-…and much more, across **50 safety-gated tools** organized into 9 categories.
+…and much more, across **56 safety-gated tools** organized into 9 categories.
 
-## The 50 Tools
+## The 56 Tools
 
 ### System Control (7 tools)
 - `battery_status` — Get Mac's current battery charge percentage and power state
@@ -55,11 +57,16 @@ well here, it runs well anywhere.
 - `list_running_apps` — List all currently running applications
 - `list_bluetooth_devices` — List Bluetooth devices connected to this Mac
 
-### Information Retrieval (5 tools)
-- `web_answer` — Search the web and return text from top result
+### Information Retrieval (10 tools)
+- `web_answer` — Search the web, read the top (relevance-ranked, not just first) result, and answer in the model's own words
+- `read_url_aloud` — Read a page aloud: prefers Brave's actual current tab (not just what Jarvis last opened, so it survives you clicking through a search result), strips paywall/subscription boilerplate before the model narrates the real content
 - `news_search` — Search and open Google News articles by topic
 - `browser_search` — Search Google or Wikipedia in the visible browser
-- `brave_search_open_first` — Search Brave Search and open the first non-sponsored result
+- `brave_search_open_first` — Search Brave Search and open the first non-sponsored, relevance-ranked result
+- `web_search` — Search the web and return top results as text (titles + URLs), no page opened
+- `browser_open` — Open a page in Jarvis's headless browser and return its title and text
+- `browser_fill` — Fill a form field on the currently open page (password fields always require confirmation)
+- `browser_download` — Download a file from a URL into your Downloads folder
 - `youtube_play` — Find and play videos on YouTube
 
 ### File Management (8 tools)
@@ -79,18 +86,20 @@ well here, it runs well anywhere.
 - `create_reminder` — Create reminders in your default macOS Reminders list
 - `clock` — Get current local date and time on this Mac
 
-### Music & Streaming (3 tools)
+### Music & Streaming (4 tools)
 - `spotify_play` — Find a song/artist on Spotify and play it
 - `spotify_open_playlist` — Open a named playlist in your Spotify library
+- `music_platform_prompt` — Ask which platform to use when you request music without naming one (YouTube, Spotify, or Apple Music)
 - `youtube_play` — Find and play videos on YouTube
 
-### GitHub & Development (6 tools)
+### GitHub & Development (7 tools)
 - `github_delete_repo` — Delete GitHub repositories (with strict name resolution)
 - `github_push` — Create GitHub repos and push code (auto-recreates deleted remotes)
 - `github_open_repo` — Open GitHub repositories in the browser
 - `locate_project` — Find and report paths to local projects
 - `refresh_projects` — Refresh the project registry cache
 - `git` — Run git commands (status, log, diff, add, commit, push, etc)
+- `vscode_open` — Open a file or project folder in Visual Studio Code, optionally at a line
 
 ### AI Vision (1 tool)
 - `look_at_screen` — Analyze screen content with Qwen 2.5-VL vision model
@@ -156,7 +165,7 @@ classified: `safe` runs immediately, `sensitive` needs one-time approval,
 Allow/Deny click in the UI — the exact command shown verbatim, never a paraphrase.
 The LLM can *propose*; only you can *authorize*.
 
-**5. Tool Executor** — 50 self-contained tools implementing one interface,
+**5. Tool Executor** — 56 self-contained tools implementing one interface,
 auto-discovered at startup (drop a new tool file in, it just works — plugins use the
 same mechanism). AppleScript, Accessibility APIs, subprocess, and Playwright under
 the hood.
@@ -193,9 +202,19 @@ makes a 3B model *trustworthy*:
   text with invented names ("web_search"); Jarvis parses and remaps them to real
   tools instead of reading JSON aloud.
 - **Grounded follow-ups** — compact tool-outcome traces ride along in session
-  history, so "open the screenshot you just took" knows the actual file path.
+  history, so "open the screenshot you just took" knows the actual file path — and
+  "do it again" after a read-aloud only re-triggers it when the trace shows that's
+  actually what happened last, never on an unrelated repeat.
 - **Speakable replies** — deterministic sanitization strips the Markdown/URL-encoded
   junk small models emit despite prompt bans, before TTS reads it.
+- **Relevance over raw search order** — search ranking sometimes puts a loosely
+  matched page ahead of the real answer (observed: "delhi protest" ranked an
+  unrelated same-titled album page above actual news coverage); results are
+  re-scored by query-word overlap before Jarvis opens or reads one.
+- **Content over chrome** — page-to-speech extraction starts at the first `<h1>`,
+  dropping the subscription/login/nav boilerplate above it (observed: a paywalled
+  site's "You are logged in… Subscribe now…" banner was nearly read aloud verbatim)
+  so the model narrates the article, not the site chrome.
 
 ## The user experience
 
@@ -256,10 +275,11 @@ wake-word threshold, TTS engine, WAHA/WhatsApp, and more).
 
 ## Quality
 
-- **549+ backend tests** (pytest): unit, API, WebSocket, and integration suites
+- **575+ backend tests** (pytest): unit, API, WebSocket, and integration suites
   against the real models — including regression tests for every hallucination
   and misrouting bug found in daily use (strict GitHub resolution, briefing wake-up,
-  fast-intent routing). Optional-dependency suites skip cleanly.
+  fast-intent routing, read-aloud boilerplate stripping, repeat-request gating).
+  Optional-dependency suites skip cleanly.
 - **Swift self-tests** for wire decoding and client behavior (`swift run jarvis-app-selftest`).
 - **ruff + mypy** clean (typed throughout), CI workflow included.
 - Docs: [architecture](docs/ARCHITECTURE.md) · [API reference](docs/API.md) ·
@@ -285,7 +305,8 @@ Actively developed — this list moves:
 - [x] Calendar access
 - [x] Email management (check, send, reply, summarize)
 - [x] AI Vision (screen analysis with Qwen 2.5-VL)
-- [x] 50+ tools across 9 categories
+- [x] Read-aloud (narrates real page content aloud, boilerplate/paywall banners stripped, tracks Brave's actual current tab, "do it again" re-fetches)
+- [x] 56 tools across 9 categories
 - [ ] Push-to-talk global hotkey
 - [ ] Tool-activity feed in the chat window (already live in the voice overlay)
 - [ ] Memory dashboard — see and edit what Jarvis remembers
