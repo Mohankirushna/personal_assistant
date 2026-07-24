@@ -866,6 +866,10 @@ def test_push_repo_commands_route_to_github_push(
         "read this out",
         "read that out",
         "read the article out",
+        "tell it out loud",  # different leading verb entirely — caught live
+        "say it aloud",
+        "tell this to me",
+        "say that out loud",
     ],
 )
 def test_read_aloud_phrasings_match_read_url_aloud(utterance: str) -> None:
@@ -883,12 +887,60 @@ def test_read_aloud_phrasings_match_read_url_aloud(utterance: str) -> None:
         "read out my emails",
         "read out my messages",
         "ready out",  # must not fuzzy-match "read out"
+        "tell it",  # "tell" is too general a verb to match bare, unlike "read"
+        "tell this",
+        "say it",
     ],
 )
 def test_read_aloud_does_not_swallow_unrelated_read_requests(utterance: str) -> None:
     call = match_fast_intent(utterance)
     assert call is None or call.name != "read_url_aloud", (
         f"{utterance!r} should not route to read_url_aloud"
+    )
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "tell me about honda bike",
+        "tell me about royal enfield",
+        "tell me more about the eiffel tower",
+        "what can you tell me about quantum computing",
+        "can you tell me about black holes",
+        "i would like to know more about the amazon rainforest",
+        "i want to know about spacex",
+    ],
+)
+def test_tell_me_about_routes_to_web_answer(utterance: str) -> None:
+    # Observed live: unmatched, this fell through to the LLM's own
+    # tool-calling judgment, which picked news_search (no article content
+    # returned) and then fabricated specific-sounding article text with an
+    # invented byline for two different unrelated topics in the same
+    # session. web_answer actually fetches real content to ground the reply.
+    call = match_fast_intent(utterance)
+    assert call is not None, f"{utterance!r} should match web_answer"
+    assert call.name == "web_answer"
+    assert call.arguments == {"query": utterance}
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "tell me about my calendar today",
+        "tell me a joke",
+        "tell me about my downloads folder",
+        "tell me about my documents folder",
+    ],
+)
+def test_tell_me_about_does_not_swallow_local_state_questions(utterance: str) -> None:
+    # "tell me about X" must not force a web search when X is the user's own
+    # local state (calendar, a known folder) that has its own tool — those
+    # tools' patterns don't recognize "tell me about" as a trigger verb, so
+    # without this exclusion the question would get wrongly web-searched
+    # instead of falling through to the ordinary planner.
+    call = match_fast_intent(utterance)
+    assert call is None or call.name != "web_answer", (
+        f"{utterance!r} should not route to web_answer"
     )
 
 

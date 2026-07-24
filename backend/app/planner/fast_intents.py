@@ -198,21 +198,23 @@ def _whatsapp_recipient(raw: str) -> str:
 # "read this out loud", "read that aloud", "read it to me", "read this news
 # content outloud" (normalization strips punctuation only, not spaces, so
 # "outloud" as one word still matches via out\s*loud), "read the article to
-# me", "read out"/"read out loud"/"read aloud" with NO object at all — all
-# perfectly natural phrasings. Two were caught live only after shipping,
-# each falling through to the LLM planner (which re-searched the topic
-# instead of reading the page the user had actually opened) rather than
-# read_url_aloud: bare "read out loud" first, then bare "read out" (no
-# "loud") after that. Both were separate literal alternatives before this
-# comment, which is exactly how the second one slipped through — a signal
-# word missed in one of three duplicated spots. Defined once as
-# _READ_ALOUD_SIGNAL and reused everywhere so a future addition can't do
-# that again. A bare pronoun ("read this"/"read that"/"read it") is
-# unambiguous enough to match without a trailing signal; a noun phrase
-# ("the article") requires one so this doesn't swallow unrelated "read the
-# news about X" requests. The URL itself is resolved from session context in
-# the planner (fast_intents has no access to it), so no argument is filled
-# in here.
+# me", "read out"/"read out loud"/"read aloud" with NO object at all, and
+# "tell it out loud"/"say it aloud" — all perfectly natural phrasings. Three
+# were caught live only after shipping, each falling through to the LLM
+# planner (which re-searched/re-answered from scratch instead of reading the
+# page the user had actually opened) rather than read_url_aloud: bare "read
+# out loud" first, then bare "read out" (no "loud"), then "tell it out loud"
+# (a different leading verb entirely). Defined once as _READ_ALOUD_SIGNAL and
+# reused everywhere so a future signal-word addition can't repeat the second
+# one. A bare pronoun ("read this"/"read that"/"read it") is unambiguous
+# enough to match without a trailing signal; a noun phrase ("the article")
+# requires one so this doesn't swallow unrelated "read the news about X"
+# requests. "tell"/"say" are deliberately more conservative than "read" —
+# always require an explicit pronoun AND signal, never bare "tell it" alone,
+# since "tell" is a far more general verb than "read" and bare "tell it"
+# could mean almost anything. The URL itself is resolved from session
+# context in the planner (fast_intents has no access to it), so no argument
+# is filled in here.
 _READ_ALOUD_SIGNAL = r"(?:out\s*loud|aloud|to me|out)"
 _READ_ALOUD = re.compile(
     r"^read (?:"
@@ -221,6 +223,7 @@ _READ_ALOUD = re.compile(
     rf"\s+{_READ_ALOUD_SIGNAL}"
     rf"|{_READ_ALOUD_SIGNAL}"
     r")$"
+    rf"|^(?:tell|say) (?:this|that|it) {_READ_ALOUD_SIGNAL}$"
 )
 # "do it again", "say it again", "repeat that" — ambiguous on their own (a
 # repeat could mean "raise the volume again", "search that again", anything).
@@ -288,6 +291,29 @@ _LIVE_INFO_QUESTION = re.compile(
 _GENERAL_KNOWLEDGE_QUESTION = re.compile(
     r"^(?:who|what|where|when|which) (?:is|are|was|were) "
     r"(?!(?:you|your|yourself|my|i|jarvis)\b).+$"
+)
+# "tell me about X" is functionally the same request as "what is X" — a
+# factual question needing real fetched content, not the model's own small,
+# static, hallucination-prone knowledge — but wasn't covered by either
+# pattern above. Observed live: unmatched, it fell through to the LLM's own
+# tool-calling judgment, which picked news_search (returns no article
+# content — just "opened a browser tab") and then fabricated specific-
+# sounding article text with an invented byline that was never in any tool
+# result, for two different unrelated topics in the same session ("honda
+# bike", "royal enfield"). Routing through web_answer instead grounds the
+# reply in real fetched page text.
+# Excludes local-state nouns that map to their own tools (calendar, known
+# folders) but aren't phrased with a verb those tools' own patterns
+# recognize ("tell me about" isn't "show"/"check"/"what's") — without this,
+# "tell me about my calendar today" or "tell me about my downloads folder"
+# would incorrectly web-search the user's own local state, the exact
+# failure mode _LIVE_INFO_QUESTION's calendar exclusion already guards
+# against for its own trigger words.
+_TELL_ME_ABOUT = re.compile(
+    r"^(?!.*\bmy (?:calendar|calender|calandar|schedule|meetings?|events)\b)"
+    r"(?!.*\b(?:downloads?|documents?|desktop|applications|pictures|movies)\s+folder\b)"
+    r"(?:tell me (?:more )?about|what can you tell me about|can you tell me about|"
+    r"i(?:d| would) like to know (?:more )?about|i want to know (?:more )?about) .+$"
 )
 _SPORTS_RESULT_REQUEST = re.compile(
     r"\b(?:football|soccer|cricket|baseball|basketball|tennis|hockey|"
@@ -880,6 +906,7 @@ def match_fast_intent(utterance: str) -> ToolCallRequest | None:
         _LIVE_INFO_QUESTION.fullmatch(normalized)
         or _SPORTS_RESULT_REQUEST.search(normalized)
         or _GENERAL_KNOWLEDGE_QUESTION.fullmatch(normalized)
+        or _TELL_ME_ABOUT.fullmatch(normalized)
     ):
         query, browser = _split_trailing_browser(normalized)
         # An explicit browser ("...in chrome") means open a page there; a bare
