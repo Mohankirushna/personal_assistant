@@ -806,3 +806,40 @@ def test_tool_pruning_fallback_on_vague_query(
     # A query that matches only one tool should fallback.
     result = planner._prune_tools("reminiscent")  # matches ~1 tool (reminder)
     assert result is None, "< 2 matches should fallback to all tools"
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "tell me about royal enfield",
+        "what can you tell me about the eiffel tower",
+        "can you give me info about quantum computing",
+        "i would like to know more about black holes",
+    ],
+)
+def test_tool_pruning_ignores_generic_connector_words(
+    settings: Settings, fake_ollama: FakeOllamaClient, utterance: str
+) -> None:
+    """Generic connector words ("about", "tell", "can", "give", "know" —
+    _PRUNE_STOPWORDS) happen to appear incidentally in a few tool
+    descriptions (summarize_inbox's "mail about <topic>",
+    create_reminder's "remind me about <X>", news_search's "articles about
+    a topic") with no real topic signal. Observed live: "tell me about
+    royal enfield" scored ONLY those 3 tools, excluding web_answer (the
+    correct one, which doesn't happen to say "about") entirely — the model
+    then picked summarize_inbox from the 3 bad options, which failed and
+    produced a reply about "a problem reading emails" for a question about
+    a motorcycle. These proper-noun topics share no real keyword with any
+    tool, so pruning must fall back to sending the full catalog (None)
+    rather than a small, coincidentally-matched, wrong subset."""
+    from app.tools.registry import ToolRegistry
+
+    full_registry = ToolRegistry()
+    full_registry.discover()
+    manager = ModelManager(fake_ollama, settings)
+    planner = Planner(fake_ollama, manager, full_registry, SafetyGate(), settings)
+
+    result = planner._prune_tools(utterance)
+    assert result is None, (
+        f"{utterance!r} should fall back to the full tool catalog, got {result}"
+    )

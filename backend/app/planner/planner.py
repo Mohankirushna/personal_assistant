@@ -236,6 +236,22 @@ _STOP_WORDS = {
     "the", "a", "an", "to", "of", "in", "on", "and", "or", "is", "are", "was",
     "were", "for", "me", "please", "you", "that", "this", "it", "what", "send",
 }
+# _prune_tools scores tools by token overlap with the utterance — but a
+# handful of generic connector words happen to appear incidentally in a few
+# tool descriptions with no real topic signal ("about" in summarize_inbox's
+# "mail about <topic>", create_reminder's "remind me about <X>",
+# news_search's "articles about a topic"). Observed live: "tell me about
+# royal enfield" scored ONLY those 3 tools above zero — web_answer, the
+# actually-correct tool, doesn't happen to contain "about" and so never
+# made the pruned set at all, leaving the model to pick from 3 wrong
+# options (it chose summarize_inbox, which then failed and produced a
+# reply about "a problem reading emails" for a question about a
+# motorcycle). Deliberately excludes "find" despite being equally generic:
+# it drives the intentional "find X" -> finder_* prefix-match bonus below.
+_PRUNE_STOPWORDS = _STOP_WORDS | {
+    "about", "tell", "get", "like", "can", "could", "would", "should",
+    "give", "know", "show", "need", "want",
+}
 
 
 def _significant_words(text: str) -> set[str]:
@@ -374,7 +390,7 @@ class Planner:
         tokens = {
             w
             for w in re.split(r"[\s\-_.,:;!?()\"]+", normalized)
-            if w and len(w) > 2  # skip common noise (a, an, to, by, etc.)
+            if w and len(w) > 2 and w not in _PRUNE_STOPWORDS
         }
         if not tokens:
             return None  # empty utterance; send all tools
