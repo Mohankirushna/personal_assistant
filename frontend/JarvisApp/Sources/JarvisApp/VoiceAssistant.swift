@@ -81,6 +81,13 @@ final class VoiceAssistant {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         let socket = session.webSocketTask(with: request)
+        // URLSessionWebSocketTask defaults to a 1 MB max message size. Most
+        // spoken replies are well under that, but reading a full article
+        // aloud (read_url_aloud) can synthesize several minutes of audio —
+        // a WAV well past 1 MB — sent as a single binary frame. Without
+        // raising this, receive() throws past that point and the voice loop
+        // dies silently (looks like "no audio played" with no error shown).
+        socket.maximumMessageSize = 20 * 1024 * 1024
         self.socket = socket
         socket.resume()
         receiveNext(from: socket)

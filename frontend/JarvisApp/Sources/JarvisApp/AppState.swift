@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 import JarvisAppKit
 import SwiftUI
@@ -30,6 +31,10 @@ final class AppState: ObservableObject {
     private lazy var locationProvider = LocationProvider { [weak self] in self?.client }
     private var sessionId: String?
     private var voiceAssistant: VoiceAssistant?
+    // Independent of voiceAssistant, which may be nil (mic not yet started):
+    // the text chat surface can speak an explicit "read this out loud" reply
+    // even when voice mode was never activated this session.
+    private var chatAudioPlayer: AVAudioPlayer?
     private let voiceOverlay = VoiceOverlayController()
     private var voiceOverlayHideTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
@@ -262,15 +267,36 @@ final class AppState: ObservableObject {
                     case .confirmation:
                         // The confirmation dialog is managed by confirm(_:).
                         continue
-                    case let .done(newSessionId, reply):
+                    case let .done(newSessionId, reply, speak):
                         sessionId = newSessionId
                         setLastAssistantMessage(reply)
+                        if speak {
+                            speakChatReply(reply)
+                        }
                     case let .error(message):
                         setLastAssistantMessage("⚠️ \(message)")
                     }
                 }
             } catch {
                 setLastAssistantMessage("⚠️ \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Speaks a chat reply the backend flagged as an explicit "read this out
+    /// loud" request (see ChatStreamEvent.done). Best-effort: a fetch or
+    /// playback failure here shouldn't disrupt the (already-shown) text reply.
+    private func speakChatReply(_ text: String) {
+        guard let client else { return }
+        Task {
+            do {
+                let wav = try await client.speak(text: text)
+                let player = try AVAudioPlayer(data: wav)
+                chatAudioPlayer = player
+                player.play()
+            } catch {
+                // Best-effort: the text reply is already shown, so a TTS
+                // fetch/playback failure here isn't worth surfacing further.
             }
         }
     }

@@ -51,13 +51,17 @@ public struct ConfirmationRequest: Decodable, Equatable {
 public enum ChatStreamEvent: Equatable {
     case token(String)
     case confirmation(ConfirmationRequest)
-    case done(sessionId: String, reply: String)
+    /// `speak`: true only when the user explicitly asked to have something
+    /// read aloud (read_url_aloud ran this turn) — this text surface is
+    /// otherwise silent by design. The caller should fetch /voice/speak for
+    /// `reply` and play it when true.
+    case done(sessionId: String, reply: String, speak: Bool)
     case error(String)
 }
 
 extension ChatStreamEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case type, content, message, reply, tool, risk, action
+        case type, content, message, reply, tool, risk, action, speak
         case sessionId = "session_id"
     }
 
@@ -77,7 +81,8 @@ extension ChatStreamEvent: Decodable {
         case "done":
             self = .done(
                 sessionId: try container.decode(String.self, forKey: .sessionId),
-                reply: try container.decode(String.self, forKey: .reply)
+                reply: try container.decode(String.self, forKey: .reply),
+                speak: try container.decodeIfPresent(Bool.self, forKey: .speak) ?? false
             )
         case "error":
             self = .error(try container.decode(String.self, forKey: .message))

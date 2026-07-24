@@ -66,7 +66,17 @@ do {
     let done = try JSONDecoder().decode(
         ChatStreamEvent.self,
         from: #"{"type": "done", "session_id": "abc", "reply": "Hi there"}"#.data(using: .utf8)!)
-    expect(done == .done(sessionId: "abc", reply: "Hi there"), "done event decodes")
+    expect(
+        done == .done(sessionId: "abc", reply: "Hi there", speak: false),
+        "done event decodes, speak defaults false when absent")
+
+    let doneSpoken = try JSONDecoder().decode(
+        ChatStreamEvent.self,
+        from: #"{"type": "done", "session_id": "abc", "reply": "The article says…", "speak": true}"#
+            .data(using: .utf8)!)
+    expect(
+        doneSpoken == .done(sessionId: "abc", reply: "The article says…", speak: true),
+        "done event decodes speak: true")
 
     let errorEvent = try JSONDecoder().decode(
         ChatStreamEvent.self, from: #"{"type": "error", "message": "Ollama down"}"#.data(using: .utf8)!)

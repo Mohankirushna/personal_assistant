@@ -58,6 +58,23 @@ public struct BackendClient {
         return try JSONDecoder().decode(ChatResponse.self, from: data)
     }
 
+    /// Synthesize `text` to WAV bytes via the backend's TTS engine. Used by
+    /// the text chat surface for the one case it does speak (see
+    /// ChatStreamEvent.done's `speak` flag) — everything else there stays
+    /// silent, so this is a plain request/response fetch, not the always-on
+    /// audio pushed over /ws/voice.
+    public func speak(text: String) async throws -> Data {
+        var request = authorizedRequest(path: "voice/speak")
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["text": text])
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            throw BackendError.http(status: http.statusCode, body: String(decoding: data, as: UTF8.self))
+        }
+        return data
+    }
+
     /// Ask the backend to speak the morning briefing aloud, if audio is
     /// audible (it decides). Returns whether it spoke. Best-effort: a failure
     /// to reach the backend is swallowed by the caller.
