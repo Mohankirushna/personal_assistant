@@ -162,7 +162,26 @@ def _tool_spec(name: str, description: str, schema: dict[str, Any]) -> dict[str,
 
 # Fast-path tools that return raw content to read rather than a finished
 # reply — their output is handed to the model to synthesize a spoken answer.
-_ANSWER_FROM_RESULT_TOOLS = {"web_answer", "summarize_inbox"}
+_ANSWER_FROM_RESULT_TOOLS = {"web_answer", "summarize_inbox", "read_url_aloud"}
+
+# read_url_aloud's raw fetch is a full page's worth of text — including site
+# boilerplate (subscription banners, nav, bylines, "read later" widgets) that
+# a real news site's markup doesn't cleanly separate from the article. A
+# fixed "answer my question in 1-2 sentences" instruction (the default below)
+# is wrong for it: there's no question, and 1-2 sentences discards the
+# article entirely. It gets its own instruction, prompting the model to
+# narrate the actual content and drop everything that isn't part of it.
+_READ_ALOUD_SUMMARY_INSTRUCTION = (
+    "The user asked to have this page read aloud. Speak the actual article content "
+    "in your own words, as a natural spoken narration of a few sentences to a short "
+    "paragraph — cover the real substance, not just a one-line gist. Skip site "
+    "navigation, subscription/login prompts, ads, bylines, share buttons, and any "
+    "other boilerplate that isn't part of the article itself. Do not call any more tools."
+)
+_DEFAULT_ANSWER_INSTRUCTION = (
+    "Answer my question using the information above, in one or two spoken sentences. "
+    "If it isn't there, say you couldn't find it. Do not call any more tools."
+)
 
 _MD_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 _MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
@@ -239,6 +258,23 @@ def _refers_to_last_content(message: str, last_query: str | None) -> bool:
     message_words = _significant_words(message)
     query_words = _significant_words(last_query)
     return bool(message_words) and bool(message_words & query_words)
+
+
+def _last_turn_read_aloud(history: list[Message]) -> bool:
+    """True if the most recent assistant turn actually ran read_url_aloud.
+
+    ChatService appends a compact tool-outcome trace ("[tool: summary]") to
+    every assistant history entry (see _update_shareable_content's docstring
+    in chat_service.py) — the same mechanism follow-ups like "open the
+    screenshot you just took" rely on for concrete detail. Reused here so
+    "do it again" only re-triggers a read-aloud when that's actually what
+    just happened, not after e.g. "turn up the volume".
+    """
+    for message in reversed(history):
+        if message.get("role") != "assistant":
+            continue
+        return "[read_url_aloud:" in str(message.get("content", ""))
+    return False
 
 
 def sanitize_spoken_reply(text: str) -> str:
@@ -434,6 +470,24 @@ class Planner:
                     name="whatsapp_send",
                     arguments={**fast_call.arguments, "message": content},
                 )
+        if fast_call is not None and fast_call.name == "repeat_last_speech":
+            # "do it again" is only unambiguous when the last turn actually
+            # spoke something; otherwise we don't know what "it" refers to
+            # and the ordinary LLM planner (with the same history) is the
+            # right fallback, same as any other unmatched utterance. When it
+            # does apply, re-resolving through the read_url_aloud branch
+            # below (rather than reusing the old reply) means "do it again"
+            # gets a fresh fetch + summary, not the same cached text.
+            fast_call = (
+                ToolCallRequest(name="read_url_aloud", arguments={})
+                if _last_turn_read_aloud(history)
+                else None
+            )
+        if fast_call is not None and fast_call.name == "read_url_aloud":
+            # The tool itself prefers Brave's actual current tab (the user
+            # may have clicked through since Jarvis last opened something);
+            # last_url is only the fallback for when Brave can't be queried.
+            fast_call = ToolCallRequest(name="read_url_aloud", arguments={"url": last_url})
         # A tool whose result is raw content (web page text), not a finished
         # reply, is run deterministically here but its output is then handed
         # to the model to synthesize a spoken answer, rather than read aloud.
@@ -489,9 +543,9 @@ class Planner:
                 {
                     "role": "user",
                     "content": (
-                        "Answer my question using the information above, in one or two "
-                        "spoken sentences. If it isn't there, say you couldn't find it. "
-                        "Do not call any more tools."
+                        _READ_ALOUD_SUMMARY_INSTRUCTION
+                        if prefetched.tool == "read_url_aloud"
+                        else _DEFAULT_ANSWER_INSTRUCTION
                     ),
                 }
             )

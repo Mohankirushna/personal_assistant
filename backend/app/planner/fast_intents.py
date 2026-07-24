@@ -195,6 +195,37 @@ def _whatsapp_recipient(raw: str) -> str:
     if match:
         return match.group("number")
     return raw
+# "read this out loud", "read that aloud", "read it to me", "read this news
+# content outloud" (normalization strips punctuation only, not spaces, so
+# "outloud" as one word still matches via out\s*loud), "read the article to
+# me", and bare "read out loud"/"read aloud" with NO object at all — a
+# perfectly natural phrasing (observed live: it fell through to the LLM
+# planner, which re-searched the topic instead of reading the page the user
+# had actually opened). A bare pronoun ("read this"/"read that"/"read it")
+# is unambiguous enough to match without a trailing signal; a noun phrase
+# ("the article") requires one so this doesn't swallow unrelated "read the
+# news about X" requests. The URL itself is resolved from session context in
+# the planner (fast_intents has no access to it), so no argument is filled
+# in here.
+_READ_ALOUD = re.compile(
+    r"^read (?:"
+    r"(?:this|that|it)(?:\s+(?:out\s*loud|aloud|to me))?"
+    r"|(?:(?:this|that|the)\s+)?(?:article|page|story|news(?:\s+content)?|link|content|webpage)"
+    r"\s+(?:out\s*loud|aloud|to me)"
+    r"|(?:out\s*loud|aloud|to me)"
+    r")$"
+)
+# "do it again", "say it again", "repeat that" — ambiguous on their own (a
+# repeat could mean "raise the volume again", "search that again", anything).
+# Returns a sentinel name, not a real tool: the planner resolves it against
+# conversation history, only turning it into another read_url_aloud call
+# when the immediately preceding turn actually spoke something (see
+# _last_turn_read_aloud in app.planner.planner) — otherwise it falls through
+# to the ordinary LLM planner rather than guessing.
+_REPEAT_SPEECH = re.compile(
+    r"^(?:do it again|say it again|read it again|read that again|say that again|"
+    r"repeat that|repeat it|repeat|once more|one more time)$"
+)
 _RECENT_NEWS = re.compile(
     r"^(?:give me|show me|open) (?:the )?(?:latest|recent) news"
     r"(?: in (?P<browser>brave|google chrome|chrome|safari|firefox))?"
@@ -775,6 +806,12 @@ def match_fast_intent(utterance: str) -> ToolCallRequest | None:
         if browser := youtube_open.group("browser"):
             args["browser"] = _BROWSER_NAMES[browser]
         return ToolCallRequest(name="youtube_play", arguments=args)
+    if _READ_ALOUD.fullmatch(normalized):
+        # url is resolved from session.last_url by the planner, not here.
+        return ToolCallRequest(name="read_url_aloud", arguments={})
+    if _REPEAT_SPEECH.fullmatch(normalized):
+        # Sentinel — the planner decides what this actually means.
+        return ToolCallRequest(name="repeat_last_speech", arguments={})
     recent_news = _RECENT_NEWS.fullmatch(normalized)
     if recent_news:
         args = {"query": recent_news.group("query")}

@@ -567,6 +567,102 @@ async def test_web_answer_fetches_then_model_answers_from_the_content(
     assert any("starts at $799 in the US" in str(m.get("content")) for m in tool_msgs)
 
 
+class ReadUrlAloudArgs(BaseModel):
+    url: str | None = None
+
+
+class FakeReadUrlAloudTool(Tool):
+    """Stand-in for read_url_aloud: skips the real fetch/AppleScript."""
+
+    name: ClassVar[str] = "read_url_aloud"
+    description: ClassVar[str] = "Read a page aloud (test double)."
+    args_model: ClassVar[type[BaseModel]] = ReadUrlAloudArgs
+    risk_level: ClassVar[RiskLevel] = RiskLevel.SAFE
+
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.calls = 0
+
+    async def run(self, args: ReadUrlAloudArgs) -> ToolResult:  # type: ignore[override]
+        self.calls += 1
+        return ToolResult(tool=self.name, ok=True, summary=self.content, data={"url": args.url})
+
+
+async def test_read_this_out_loud_fast_paths_and_summarizes(
+    settings: Settings, fake_ollama: FakeOllamaClient
+) -> None:
+    """'read this out loud' fast-paths to read_url_aloud using last_url, and
+    the raw page text is handed to the model to narrate — not spoken as-is
+    (see _READ_ALOUD_SUMMARY_INSTRUCTION)."""
+    reader = FakeReadUrlAloudTool(content="Raw page: lots of nav junk. Real headline. Body text.")
+    reg = ToolRegistry()
+    reg.register(reader)
+    manager = ModelManager(fake_ollama, settings)
+    planner = Planner(fake_ollama, manager, reg, SafetyGate(), settings)
+    fake_ollama.queued_turns = [respond("Here's a clean narration of the article.")]
+
+    execution = await planner.run(
+        "read this out loud", history=[], last_url="https://example.com/article"
+    )
+
+    assert reader.calls == 1
+    assert execution.steps[0].tool == "read_url_aloud"
+    assert execution.reply == "Here's a clean narration of the article."
+
+
+async def test_do_it_again_reruns_read_url_aloud_when_last_turn_spoke(
+    settings: Settings, fake_ollama: FakeOllamaClient
+) -> None:
+    """'do it again' after a turn that actually read something aloud
+    (detected via the [read_url_aloud: ...] trace ChatService appends to
+    history) re-fetches and re-narrates, rather than echoing stale text."""
+    reader = FakeReadUrlAloudTool(content="Raw page text.")
+    reg = ToolRegistry()
+    reg.register(reader)
+    manager = ModelManager(fake_ollama, settings)
+    planner = Planner(fake_ollama, manager, reg, SafetyGate(), settings)
+    fake_ollama.queued_turns = [respond("Fresh narration.")]
+    history = [
+        {"role": "user", "content": "read this out loud"},
+        {
+            "role": "assistant",
+            "content": "Old narration.\n[read_url_aloud: Raw page text.]",
+        },
+    ]
+
+    execution = await planner.run(
+        "do it again", history=history, last_url="https://example.com/article"
+    )
+
+    assert reader.calls == 1  # actually re-fetched, not just echoed
+    assert execution.steps[0].tool == "read_url_aloud"
+    assert execution.reply == "Fresh narration."
+
+
+async def test_do_it_again_falls_through_when_last_turn_was_unrelated(
+    settings: Settings, fake_ollama: FakeOllamaClient
+) -> None:
+    """'do it again' after an unrelated action (no read-aloud trace) must
+    NOT trigger read_url_aloud — "it" is ambiguous, so this falls through to
+    the ordinary LLM planner rather than guessing."""
+    reader = FakeReadUrlAloudTool(content="Raw page text.")
+    reg = ToolRegistry()
+    reg.register(reader)
+    manager = ModelManager(fake_ollama, settings)
+    planner = Planner(fake_ollama, manager, reg, SafetyGate(), settings)
+    history = [
+        {"role": "user", "content": "turn up the volume"},
+        {"role": "assistant", "content": "Volume increased.\n[volume: Volume set to 60%]"},
+    ]
+
+    execution = await planner.run(
+        "do it again", history=history, last_url="https://example.com/article"
+    )
+
+    assert reader.calls == 0
+    assert "read_url_aloud" not in [s.tool for s in execution.steps]
+
+
 async def test_send_pronoun_reference_forwards_last_url(
     whatsapp_planner: Planner, whatsapp_tool: WhatsAppEchoTool
 ) -> None:

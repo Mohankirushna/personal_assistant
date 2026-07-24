@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from app.core.config import Settings
+from app.core.ollama_client import ChatTurn
+from app.main import create_app
+from app.planner.schemas import RiskLevel, ToolResult
+from app.tools.base import Tool
+from app.tools.registry import ToolRegistry
 from tests.conftest import FakeOllamaClient
 
 
@@ -57,6 +65,51 @@ def test_websocket_streams_tokens(client: TestClient, fake_ollama: FakeOllamaCli
         assert "".join(tokens).strip() == fake_ollama.reply
         assert events[-1]["reply"].strip() == fake_ollama.reply
         assert events[-1]["session_id"]
+        # This is a text surface: ordinary chat (no tools ran, empty
+        # registry) must never be flagged for audio playback.
+        assert events[-1]["speak"] is False
+
+
+class _ReadAloudArgs(BaseModel):
+    url: str | None = None
+
+
+class _FakeReadUrlAloudTool(Tool):
+    """Stand-in for read_url_aloud: skips the real fetch/AppleScript so the
+    test only exercises the chat.py <-> planner <-> tool-registry wiring."""
+
+    name: ClassVar[str] = "read_url_aloud"
+    description: ClassVar[str] = "Read a page aloud (test double)."
+    args_model: ClassVar[type[BaseModel]] = _ReadAloudArgs
+    risk_level: ClassVar[RiskLevel] = RiskLevel.SAFE
+
+    async def run(self, args: _ReadAloudArgs) -> ToolResult:  # type: ignore[override]
+        return ToolResult(tool=self.name, ok=True, summary="Raw page text.", data={"url": args.url})
+
+
+def test_websocket_flags_speak_when_read_url_aloud_ran(
+    settings: Settings, fake_ollama: FakeOllamaClient
+) -> None:
+    """The one case this text surface should speak: an explicit 'read this
+    out loud' that actually ran read_url_aloud. Needs its own app instance —
+    the shared `client` fixture wires an empty (tool-less) registry."""
+    registry = ToolRegistry()
+    registry.register(_FakeReadUrlAloudTool())
+    app = create_app(
+        settings=settings, ollama_client=fake_ollama, registry=registry, enable_memory=False
+    )
+    fake_ollama.queued_turns = [ChatTurn(content="Here is the article summary.")]
+
+    with TestClient(app) as client, client.websocket_connect("/ws/chat") as ws:
+        ws.send_json({"message": "read this out loud"})
+        events = []
+        while True:
+            event = ws.receive_json()
+            events.append(event)
+            if event["type"] == "done":
+                break
+        assert events[-1]["reply"] == "Here is the article summary."
+        assert events[-1]["speak"] is True
 
 
 def test_websocket_error_keeps_socket_open(

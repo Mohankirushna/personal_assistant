@@ -8,8 +8,15 @@ WS /ws/chat — streaming + interactive confirmations:
            -> {"type": "confirm_response", "approved": bool}
     server -> {"type": "token", "content"}*
            -> {"type": "confirm_request", "tool", "risk", "action"}
-           -> {"type": "done", "session_id", "reply"}
+           -> {"type": "done", "session_id", "reply", "speak"}
            -> {"type": "error", "message"} (socket stays open)
+
+This is a text surface — replies are never spoken here, except when `speak`
+is true: the user explicitly asked to have something read aloud
+(read_url_aloud ran this turn), so the client should fetch /voice/speak for
+`reply` and play it. Ordinary chat stays silent; only an explicit "read this
+out loud" produces audio, matching /ws/voice's speak-everything behavior
+only for turns that actually asked for it.
 """
 
 from __future__ import annotations
@@ -93,9 +100,19 @@ async def chat_ws(websocket: WebSocket) -> None:
                 continue
             session = service.open_session(parsed.session_id)
             parts: list[str] = []
+            # Set when read_url_aloud actually ran this turn — the one
+            # explicit "speak this" signal on an otherwise-silent text
+            # surface. Recreated per message so a prior turn's read can't
+            # leak into this one.
+            ok_tools: list[str] = []
+
+            async def track_step(tool: str, status: str, ok_tools: list[str] = ok_tools) -> None:
+                if status == "ok":
+                    ok_tools.append(tool)
+
             try:
                 async for token in service.respond_stream(
-                    session, parsed.message, confirmer=ws_confirmer
+                    session, parsed.message, confirmer=ws_confirmer, on_step=track_step
                 ):
                     parts.append(token)
                     await websocket.send_json({"type": "token", "content": token})
@@ -103,7 +120,12 @@ async def chat_ws(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "error", "message": str(exc)})
                 continue
             await websocket.send_json(
-                {"type": "done", "session_id": session.id, "reply": "".join(parts)}
+                {
+                    "type": "done",
+                    "session_id": session.id,
+                    "reply": "".join(parts),
+                    "speak": "read_url_aloud" in ok_tools,
+                }
             )
     except WebSocketDisconnect:
         logger.debug("chat websocket disconnected")

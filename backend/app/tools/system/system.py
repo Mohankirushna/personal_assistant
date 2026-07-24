@@ -207,6 +207,37 @@ class BrowserSearchTool(Tool):
         )
 
 
+_SEARCH_STOPWORDS = {
+    "a", "about", "an", "and", "are", "at", "for", "in", "is", "me", "of",
+    "on", "or", "tell", "the", "to", "what", "who",
+}
+
+
+def _best_matching_result(query: str, results: list[dict]) -> dict | None:
+    """Pick the result whose title best overlaps the query, not just #1.
+
+    ddgs's own ranking sometimes puts a loosely-matched page (e.g. a
+    Wikipedia redirect that shares one word with the query) ahead of results
+    that actually match the topic — e.g. searching "delhi protest" ranked a
+    same-titled Alanis Morissette album page above the actual Delhi protest
+    coverage. Score each of the top few results by query-word overlap in the
+    title and take the best; ties keep ddgs's original order since `max`
+    returns the first item attaining the top score.
+    """
+    if not results:
+        return None
+    words = {w for w in re.findall(r"[a-z0-9]+", query.lower()) if w not in _SEARCH_STOPWORDS}
+    if not words:
+        return results[0]
+
+    def score(result: dict) -> int:
+        title = (result.get("title") or "").lower()
+        return sum(1 for word in words if word in title)
+
+    best = max(results, key=score)
+    return best if score(best) > 0 else results[0]
+
+
 class BraveSearchOpenFirstArgs(BaseModel):
     query: str = Field(description="Words or a question to search for in Brave Search.")
 
@@ -270,11 +301,13 @@ class BraveSearchOpenFirstTool(Tool):
             from ddgs import DDGS
         except ImportError:
             return None
-        for result in DDGS().text(query, max_results=5):
-            url = result.get("href", "")
-            if url.startswith(("http://", "https://")):
-                return url
-        return None
+        results = [
+            result
+            for result in DDGS().text(query, max_results=5)
+            if result.get("href", "").startswith(("http://", "https://"))
+        ]
+        best = _best_matching_result(query, results)
+        return best.get("href") if best else None
 
     async def run(self, args: BraveSearchOpenFirstArgs) -> ToolResult:  # type: ignore[override]
         search_url = "https://search.brave.com/search?q=" + quote_plus(args.query)
@@ -353,6 +386,16 @@ class WebAnswerTool(Tool):
 
     @staticmethod
     def _html_to_text(page: str) -> str:
+        # News sites put everything before the headline — top nav, account/
+        # subscription banners, breadcrumbs — outside the actual article
+        # (observed: The Hindu's page opens with ~400 chars of "You are
+        # logged in... Subscribe now... Account Settings..." before any real
+        # content). <h1> is a near-universal headline marker, so starting
+        # extraction there drops that boilerplate without site-specific
+        # rules. Falls back to the full page when there's no <h1>.
+        headline = re.search(r"(?i)<h1[\s>]", page)
+        if headline:
+            page = page[headline.start() :]
         # Drop non-content elements, strip remaining tags, decode entities,
         # and collapse whitespace into a compact block the 3B model can read.
         page = re.sub(
@@ -387,7 +430,8 @@ class WebAnswerTool(Tool):
             if (r.get("body") or "").strip()
         ]
         snippet_block = "\n".join(snippets)[: self._MAX_SNIPPET_CHARS]
-        top_url = results[0].get("href", "")
+        best = _best_matching_result(args.query, results) or results[0]
+        top_url = best.get("href", "")
 
         # Lead with the search-result snippets: they are concise and answer-
         # oriented, which a 3B model reads more reliably than a full page's
@@ -414,6 +458,89 @@ class WebAnswerTool(Tool):
                     {"title": r.get("title", ""), "url": r.get("href", "")} for r in results
                 ],
             },
+        )
+
+
+class ReadUrlAloudArgs(BaseModel):
+    url: str | None = Field(
+        default=None,
+        description="The URL of the page to read aloud. Optional — if omitted, reads "
+        "whatever page is currently active in Brave Browser.",
+    )
+
+
+class ReadUrlAloudTool(Tool):
+    """Fetch a page's raw text for the model to narrate aloud.
+
+    Real pages mix the article with subscription banners, nav, bylines, and
+    share widgets that plain tag-stripping (_html_to_text) can't fully tell
+    apart from content. Rather than speak that raw mix verbatim, this tool's
+    result is fed to the model (via _ANSWER_FROM_RESULT_TOOLS in the
+    planner) with an instruction to narrate the real content and drop the
+    boilerplate — see _READ_ALOUD_SUMMARY_INSTRUCTION in app.planner.planner.
+    """
+
+    name: ClassVar[str] = "read_url_aloud"
+    description: ClassVar[str] = (
+        "Fetch a specific web page's text so it can be read aloud. Use only when "
+        "the user explicitly asks to read a page/article out loud or 'to me' — not for "
+        "ordinary questions (use web_answer for those)."
+    )
+    args_model: ClassVar[type[BaseModel]] = ReadUrlAloudArgs
+    risk_level: ClassVar[RiskLevel] = RiskLevel.SAFE
+
+    # This raw fetch goes to the 3B model as tool-result context (not spoken
+    # directly), so it competes with the system prompt and tool catalog for
+    # the 8K context window — kept well short of web_answer's already-modest
+    # budget (2000 + 1200 chars) since a whole page is bulkier per useful
+    # sentence than a search snippet.
+    _MAX_CHARS = 4000
+
+    @staticmethod
+    async def _frontmost_brave_url() -> str | None:
+        """The page the user is actually looking at in Brave right now.
+
+        Preferred over whatever URL Jarvis itself last opened: the user may
+        have clicked through to a different page (e.g. a search result on a
+        Google News listing Jarvis opened) since then, and Jarvis has no
+        other way to observe that navigation. Never launches Brave — only
+        queries it if it's already running, and swallows the AppleScript
+        error when there's no open window.
+        """
+        script = (
+            'if application "Brave Browser" is running then\n'
+            "  try\n"
+            '    tell application "Brave Browser" to return URL of active tab of front window\n'
+            "  end try\n"
+            "end if\n"
+            'return ""'
+        )
+        output = await run_osascript(script)
+        url = output.stdout.strip()
+        return url if output.ok and url.startswith(("http://", "https://")) else None
+
+    async def run(self, args: ReadUrlAloudArgs) -> ToolResult:  # type: ignore[override]
+        url = await self._frontmost_brave_url() or args.url
+        if not url:
+            return ToolResult.failure(
+                self.name,
+                "I don't see a page open in Brave to read — open or search for something first.",
+            )
+        text = await WebAnswerTool._fetch_page_text(url)
+        if not text:
+            return ToolResult.failure(self.name, f"couldn't read the page at {url}.")
+        truncated = len(text) > self._MAX_CHARS
+        text = text[: self._MAX_CHARS]
+        if truncated:
+            # This goes to the model as tool content, not straight to speech
+            # (see _ANSWER_FROM_RESULT_TOOLS in the planner) — a neutral
+            # marker rather than a spoken-sounding aside.
+            text += " [article truncated]"
+        return ToolResult(
+            tool=self.name,
+            ok=True,
+            summary=text,
+            data={"url": url, "chars": len(text)},
         )
 
 
